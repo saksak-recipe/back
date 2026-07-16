@@ -29,3 +29,8 @@ class ErrorCode(StrEnum):
     NICKNAME_CONFLICT = "NICKNAME_CONFLICT"  # 닉네임 중복
     PASSWORD_MISMATCH = "PASSWORD_MISMATCH"  # 비밀번호와 비밀번호 확인 불일치
     USER_NOT_FOUND = "USER_NOT_FOUND"  # 사용자 없음
+
+    # ----------------------------------------
+    # 4. 식재료 관련
+    # ----------------------------------------
+    INGREDIENT_NOT_FOUND = "INGREDIENT_NOT_FOUND"  # 식재료 없음

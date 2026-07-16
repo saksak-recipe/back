@@ -25,7 +25,11 @@ class DatabaseException(BaseCustomException):
 
 
 class BadRequestException(BaseCustomException):
-    def __init__(self, code: str | ErrorCode = ErrorCode.BAD_REQUEST, detail: str = "잘못된 요청입니다."):
+    def __init__(
+        self,
+        code: str | ErrorCode = ErrorCode.BAD_REQUEST,
+        detail: str = "잘못된 요청입니다.",
+    ):
         super().__init__(status_code=400, code=code, detail=detail)
 
 
@@ -45,7 +49,9 @@ class ForbiddenException(BaseCustomException):
 
 class NotFoundException(BaseCustomException):
     def __init__(
-        self, code: str | ErrorCode = ErrorCode.NOT_FOUND, detail: str = "요청하신 리소스를 찾을 수 없습니다."
+        self,
+        code: str | ErrorCode = ErrorCode.NOT_FOUND,
+        detail: str = "요청하신 리소스를 찾을 수 없습니다.",
     ):
         super().__init__(status_code=404, code=code, detail=detail)
 
@@ -87,3 +93,11 @@ class InvalidTokenException(UnAuthorizedException):
 class UserNotFoundException(NotFoundException):
     def __init__(self, detail: str = "사용자를 찾을 수 없습니다."):
         super().__init__(code=ErrorCode.USER_NOT_FOUND, detail=detail)
+
+
+# ----------------------------------------
+# 4. 식재료 관련
+# ----------------------------------------
+class IngredientNotFoundException(NotFoundException):
+    def __init__(self, detail: str = "식재료를 찾을 수 없습니다."):
+        super().__init__(code=ErrorCode.INGREDIENT_NOT_FOUND, detail=detail)
