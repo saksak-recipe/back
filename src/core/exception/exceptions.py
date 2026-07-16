@@ -25,7 +25,7 @@ class DatabaseException(BaseCustomException):
 
 
 class BadRequestException(BaseCustomException):
-    def __init__(self, code: str | ErrorCode, detail: str = "잘못된 요청입니다."):
+    def __init__(self, code: str | ErrorCode = ErrorCode.BAD_REQUEST, detail: str = "잘못된 요청입니다."):
         super().__init__(status_code=400, code=code, detail=detail)
 
 
@@ -45,13 +45,13 @@ class ForbiddenException(BaseCustomException):
 
 class NotFoundException(BaseCustomException):
     def __init__(
-        self, code: str | ErrorCode, detail: str = "요청하신 리소스를 찾을 수 없습니다."
+        self, code: str | ErrorCode = ErrorCode.NOT_FOUND, detail: str = "요청하신 리소스를 찾을 수 없습니다."
     ):
         super().__init__(status_code=404, code=code, detail=detail)
 
 
 class ConflictException(BaseCustomException):
-    def __init__(self, code: str | ErrorCode, detail: str):
+    def __init__(self, code: str | ErrorCode.CONFLICT, detail: str):
         super().__init__(status_code=409, code=code, detail=detail)
 
 

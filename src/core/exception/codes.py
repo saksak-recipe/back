@@ -8,6 +8,9 @@ class ErrorCode(StrEnum):
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"  # 서버 내부 에러
     DB_ERROR = "DB_ERROR"  # 데이터베이스 오류
     HTTP_ERROR = "HTTP_ERROR"  # HTTP 에러
+    BAD_REQUEST = "BAD_REQUEST"
+    NOT_FOUND = "NOT_FOUND"
+    CONFLICT = "CONFLICT"
     VALIDATION_ERROR = "VALIDATION_ERROR"  # Pydantic 모델 검증 실패 에러
     UNAUTHORIZED = "UNAUTHORIZED"  # 인증 필요 (로그인 안함)
     FORBIDDEN = "FORBIDDEN"  # 작업에 대한 권한 없음

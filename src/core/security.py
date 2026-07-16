@@ -52,6 +52,7 @@ def decode_jwt(access_token: str) -> str:
 
         if not user_id:
             raise TokenExpiredException("유효하지 않은 토큰입니다.")
+        return user_id
 
     except jwt.ExpiredSignatureError as e:
         raise TokenExpiredException() from e

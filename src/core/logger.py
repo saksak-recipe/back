@@ -16,7 +16,7 @@ def setup_logger():
 
     # 파일 저장용
     logger.add(
-        "logs/domeok_server.log",
+        "logs/saksak_server.log",
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level="INFO",
         rotation="10 MB",  # 파일이 10MB가 되면 새로 만듦
