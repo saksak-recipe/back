@@ -15,9 +15,9 @@ class IngredientService:
         self.user = user
         self.ingredient_repo = ingredient_repo
 
-    async def add_ingredient(
+    async def add_ingredients(
         self, request: AddIngredientRequest
-    ) -> list[AddIngredientRequest]:
+    ) -> list[AddIngredientResponse]:
         ingredients = [
             Ingredient(
                 user_id=self.user.id,

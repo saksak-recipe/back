@@ -52,7 +52,14 @@ async def delete_ingredient(
 ) -> None:
     await service.delete_ingredient(ingredient_id)
 
-
+@router.get(
+    "/all-delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=create_error_response(
+        UnAuthorizedException,
+        IngredientNotFoundException,
+    )
+)
 async def delete_all_ingredient(
     service: IngredientService = Depends(get_ingredient_service),
 ) -> None:

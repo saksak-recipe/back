@@ -46,7 +46,7 @@ class UserService:
         return await self.user_repo.add_user(user)
 
     async def get_user_info(self, user_id: UUID) -> UserInfoResponse:
-        user = await self.user_repo.get_user_by_id(str(user_id))
+        user = await self.user_repo.get_user_by_id(user_id)
         if not user:
             raise UserNotFoundException()
         return UserInfoResponse.model_validate(user)

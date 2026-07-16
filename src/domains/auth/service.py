@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from core import security
 from core.exception.exceptions import UnAuthorizedException
 
@@ -31,7 +33,7 @@ class AuthService:
         )
 
     async def get_user_by_token(self, access_token: str) -> User:
-        user_id = security.decode_jwt(access_token)
+        user_id = UUID(security.decode_jwt(access_token))
         user = await self.user_repo.get_user_by_id(user_id)
         if not user:
             raise UnAuthorizedException(detail="사용자를 찾을 수 없습니다.")
