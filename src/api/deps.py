@@ -5,6 +5,9 @@ from core.database import get_db
 from core.redis import get_redis
 from core.security import REFRESH_TOKEN_EXPIRE_SECONDS, get_access_token
 from domains.auth.refresh_store import RefreshTokenStore
+from domains.ai_recipe.agent import AiRecipeAgent
+from domains.ai_recipe.cache import AiRecipeCache
+from domains.ai_recipe.service import AiRecipeService
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.service import IngredientService
 
@@ -59,6 +62,19 @@ def get_ingredient_service(
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
 ) -> IngredientService:
     return IngredientService(user=user, ingredient_repo=ingredient_repo)
+
+
+def get_ai_recipe_service(
+    user: User = Depends(get_current_user),
+    ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
+) -> AiRecipeService:
+    cache = AiRecipeCache(get_redis(), ttl_seconds=86400)
+    return AiRecipeService(
+        user=user,
+        ingredient_repo=ingredient_repo,
+        agent=AiRecipeAgent(),
+        cache=cache,
+    )
 
 
 def get_rag_retriever() -> RecipeRetriever:
