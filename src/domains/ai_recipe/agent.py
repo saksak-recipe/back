@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
 
 from core.config import settings
-from domains.ai_recipe.schemas import (
-    AiRecipeCacheRecord,
-    AiRecipeCandidate,
-    AiRecipeCandidateList,
-    AiRecipeDetailPayload,
-)
+from domains.ai_recipe.schemas import AiRecipeCacheRecord, AiRecipeCandidate
+from domains.ai_recipe.tools import TOP_K, AgentSession, build_tools
 
-TOP_K = 5
-# gpt-5-nano 기본 reasoning은 1분 전후까지 갈 수 있어 여유 있게 둔다.
+MAX_TOOL_LOOPS = 8
+# gpt-5-nano 기본 reasoning + 멀티 툴 루프를 위해 여유를 둔다.
 LLM_TIMEOUT_SECONDS = 120
-
-T = TypeVar("T", bound=BaseModel)
 
 
 class AgentFailedError(Exception):
@@ -28,16 +22,17 @@ class AgentFailedError(Exception):
 
 LIST_SYSTEM = (
     "You are a Korean home-cooking assistant. "
-    f"Propose exactly {TOP_K} everyday Korean home-cooking recipes "
-    "the user can mostly cook with fridge ingredients. "
-    "Prefer using owned ingredients; missing staples are OK in small amounts. "
-    "Vary recipes across requests even when ingredients stay the same."
+    f"Use tools to inspect ingredients and propose exactly {TOP_K} recipes "
+    "the user can mostly cook with fridge items. "
+    "Always call propose_recipe_candidates with exactly "
+    f"{TOP_K} recipes before finishing."
 )
 
 DETAIL_SYSTEM = (
     "You are a Korean home-cooking assistant. "
     "Expand the given recipe summary into concrete ingredient amounts, "
-    "ordered cooking steps, and optional tips."
+    "ordered cooking steps, and optional tips. "
+    "Always call expand_recipe_detail before finishing."
 )
 
 
@@ -55,62 +50,73 @@ class AiRecipeAgent:
         )
 
     def run_list(self, owned_names: list[str]) -> list[AiRecipeCandidate]:
-        result = self._invoke_structured(
-            schema=AiRecipeCandidateList,
+        session = AgentSession(owned_names=owned_names)
+        self._run(
             system=LIST_SYSTEM,
             user=(
-                f"Fridge ingredients: {', '.join(owned_names)}\n"
-                f"Return exactly {TOP_K} distinct recipes."
+                "Propose recipes for these fridge ingredients. "
+                "Call get_user_ingredients first if needed."
             ),
+            tools=build_tools(session),
         )
-        if len(result.recipes) != TOP_K:
+        if len(session.candidates) != TOP_K:
             raise AgentFailedError(
                 f"agent did not propose {TOP_K} recipe candidates"
             )
-        return result.recipes
+        return session.candidates
 
     def run_detail(
         self,
         owned_names: list[str],
         summary: AiRecipeCacheRecord,
-    ) -> dict[str, object]:
-        _ = owned_names
-        result = self._invoke_structured(
-            schema=AiRecipeDetailPayload,
+    ) -> dict[str, Any]:
+        session = AgentSession(owned_names=owned_names)
+        self._run(
             system=DETAIL_SYSTEM,
             user=(
                 f"Recipe: {summary.recipe_name}\n"
                 f"Ingredients: {', '.join(summary.recipe_ingredients)}\n"
                 f"Difficulty: {summary.recipe_difficulty}\n"
                 f"Time: {summary.time}\n"
-                "Provide amounts, ordered steps, and optional tips."
+                "Call expand_recipe_detail with amounts, steps, tips."
             ),
+            tools=build_tools(session),
         )
-        if not result.ingredients or not result.steps:
+        if session.detail is None:
             raise AgentFailedError("agent did not expand recipe detail")
-        return {
-            "ingredients": result.ingredients,
-            "steps": result.steps,
-            "tips": result.tips,
-        }
+        return session.detail
 
-    def _invoke_structured(self, *, schema: type[T], system: str, user: str) -> T:
+    def _run(self, *, system: str, user: str, tools: list[BaseTool]) -> None:
+        tool_map = {tool.name: tool for tool in tools}
         try:
-            structured = self._llm.with_structured_output(schema)
-            raw = structured.invoke(
-                [
-                    SystemMessage(content=system),
-                    HumanMessage(content=user),
-                ]
-            )
+            llm = self._llm.bind_tools(tools)
         except Exception as exc:
-            raise AgentFailedError("recipe agent model invocation failed") from exc
+            raise AgentFailedError("failed to bind recipe agent tools") from exc
 
-        if isinstance(raw, schema):
-            return raw
-        try:
-            return schema.model_validate(raw)
-        except Exception as exc:
-            raise AgentFailedError(
-                "recipe agent returned invalid structured output"
-            ) from exc
+        messages: list[Any] = [
+            SystemMessage(content=system),
+            HumanMessage(content=user),
+        ]
+        for _ in range(MAX_TOOL_LOOPS):
+            try:
+                ai: AIMessage = llm.invoke(messages)
+            except Exception as exc:
+                raise AgentFailedError("recipe agent model invocation failed") from exc
+
+            messages.append(ai)
+            if not ai.tool_calls:
+                return
+
+            for call in ai.tool_calls:
+                name = call["name"]
+                tool = tool_map.get(name)
+                if tool is None:
+                    output = f"error: unknown tool {name}"
+                else:
+                    try:
+                        output = tool.invoke(call.get("args") or {})
+                    except Exception as exc:
+                        output = f"error: tool {name} failed: {exc}"
+                messages.append(
+                    ToolMessage(content=str(output), tool_call_id=call["id"])
+                )

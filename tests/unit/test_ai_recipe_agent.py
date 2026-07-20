@@ -1,27 +1,21 @@
 from unittest.mock import MagicMock
 
 import pytest
+from langchain_core.messages import AIMessage
 
-from domains.ai_recipe.agent import AgentFailedError, AiRecipeAgent, TOP_K
-from domains.ai_recipe.schemas import (
-    AiRecipeCacheRecord,
-    AiRecipeCandidate,
-    AiRecipeCandidateList,
-    AiRecipeDetailPayload,
-    AiRecipeIngredient,
-    AiRecipeStep,
-)
+from domains.ai_recipe.agent import MAX_TOOL_LOOPS, AgentFailedError, AiRecipeAgent
+from domains.ai_recipe.schemas import AiRecipeCacheRecord
 
 
-def _five_candidates() -> list[AiRecipeCandidate]:
+def _five_recipes():
     return [
-        AiRecipeCandidate(
-            recipe_name=f"요리{i}",
-            recipe_ingredients=["계란", "밥"],
-            recipe_difficulty="초급",
-            time="10분",
-        )
-        for i in range(TOP_K)
+        {
+            "recipe_name": f"요리{i}",
+            "recipe_ingredients": ["계란", "밥"],
+            "recipe_difficulty": "초급",
+            "time": "10분",
+        }
+        for i in range(5)
     ]
 
 
@@ -37,68 +31,124 @@ def _summary() -> AiRecipeCacheRecord:
     )
 
 
-def test_run_list_returns_candidates_via_structured_output():
+def test_run_list_uses_tools_and_returns_candidates():
     llm = MagicMock()
-    structured = MagicMock()
-    llm.with_structured_output.return_value = structured
-    structured.invoke.return_value = AiRecipeCandidateList(recipes=_five_candidates())
+    llm.bind_tools.return_value = llm
+    llm.invoke.side_effect = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "propose_recipe_candidates",
+                    "args": {"recipes": _five_recipes()},
+                    "id": "call_1",
+                }
+            ],
+        ),
+        AIMessage(content="done"),
+    ]
 
     candidates = AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_list(["계란"])
 
     assert len(candidates) == 5
     assert candidates[0].recipe_name == "요리0"
-    llm.with_structured_output.assert_called_once()
-    structured.invoke.assert_called_once()
 
 
-def test_run_list_raises_when_wrong_count():
+def test_run_list_recovers_after_invalid_tool_args():
     llm = MagicMock()
-    structured = MagicMock()
-    llm.with_structured_output.return_value = structured
-    structured.invoke.return_value = AiRecipeCandidateList(
-        recipes=_five_candidates()[:2]
-    )
+    llm.bind_tools.return_value = llm
+    llm.invoke.side_effect = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "propose_recipe_candidates",
+                    "args": {"recipes": [{}, {}, {}, {}, {}]},
+                    "id": "invalid_call",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "propose_recipe_candidates",
+                    "args": {"recipes": _five_recipes()},
+                    "id": "valid_call",
+                }
+            ],
+        ),
+        AIMessage(content="done"),
+    ]
 
-    with pytest.raises(AgentFailedError):
-        AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_list(["계란"])
+    candidates = AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_list(["계란"])
+
+    assert len(candidates) == 5
+    retry_messages = llm.invoke.call_args_list[1].args[0]
+    error_message = next(
+        message
+        for message in retry_messages
+        if getattr(message, "tool_call_id", None) == "invalid_call"
+    )
+    assert str(error_message.content).startswith("error:")
 
 
 def test_run_list_raises_when_no_candidates():
     llm = MagicMock()
-    structured = MagicMock()
-    llm.with_structured_output.return_value = structured
-    structured.invoke.return_value = AiRecipeCandidateList(recipes=[])
+    llm.bind_tools.return_value = llm
+    llm.invoke.return_value = AIMessage(content="sorry")
 
     with pytest.raises(AgentFailedError):
         AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_list(["계란"])
 
 
-def test_run_detail_expands_via_structured_output():
+def test_run_detail_expands():
     llm = MagicMock()
-    structured = MagicMock()
-    llm.with_structured_output.return_value = structured
-    structured.invoke.return_value = AiRecipeDetailPayload(
-        ingredients=[AiRecipeIngredient(name="계란", amount="2개")],
-        steps=[AiRecipeStep(order=1, description="볶는다")],
-        tips=["약불"],
-    )
+    llm.bind_tools.return_value = llm
+    llm.invoke.side_effect = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "expand_recipe_detail",
+                    "args": {
+                        "ingredients": [{"name": "계란", "amount": "2개"}],
+                        "steps": [{"order": 1, "description": "볶는다"}],
+                        "tips": ["약불"],
+                    },
+                    "id": "call_1",
+                }
+            ],
+        ),
+        AIMessage(content="done"),
+    ]
 
     detail = AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_detail(
         ["계란"], _summary()
     )
 
     assert detail["tips"] == ["약불"]
-    assert detail["ingredients"][0].name == "계란"
-    llm.with_structured_output.assert_called_once()
-    structured.invoke.assert_called_once()
+
+
+def test_run_stops_after_max_tool_loops():
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.invoke.return_value = AIMessage(
+        content="",
+        tool_calls=[{"name": "get_user_ingredients", "args": {}, "id": "call_1"}],
+    )
+
+    with pytest.raises(AgentFailedError):
+        AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_list(["계란"])
+
+    assert llm.invoke.call_count == MAX_TOOL_LOOPS
 
 
 def test_run_wraps_llm_error_as_cause():
     llm = MagicMock()
-    structured = MagicMock()
-    llm.with_structured_output.return_value = structured
+    llm.bind_tools.return_value = llm
     upstream_error = RuntimeError("openai unavailable")
-    structured.invoke.side_effect = upstream_error
+    llm.invoke.side_effect = upstream_error
 
     with pytest.raises(AgentFailedError) as exc_info:
         AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_detail(
