@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -40,6 +40,14 @@ DETAIL_SYSTEM = (
 )
 
 
+def chat_model_kwargs(model_name: str) -> dict[str, Any]:
+    """gpt-5 계열은 기본 reasoning이 너무 길어 타임아웃 나므로 minimal로 고정."""
+    kwargs: dict[str, Any] = {"timeout": LLM_TIMEOUT_SECONDS}
+    if model_name.startswith("gpt-5"):
+        kwargs["reasoning_effort"] = "minimal"
+    return kwargs
+
+
 class AiRecipeAgent:
     def __init__(
         self,
@@ -50,7 +58,7 @@ class AiRecipeAgent:
         self._llm = llm or ChatOpenAI(
             model=self._model_name,
             api_key=settings.OPENAI_API_KEY.get_secret_value(),
-            timeout=LLM_TIMEOUT_SECONDS,
+            **chat_model_kwargs(self._model_name),
         )
 
     def run_list(self, owned_names: list[str]) -> list[AiRecipeCandidate]:

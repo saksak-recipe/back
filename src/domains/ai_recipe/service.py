@@ -4,6 +4,7 @@ import asyncio
 import uuid
 
 import openai
+from loguru import logger
 
 from core.exception.exceptions import ExternalServiceException, NotFoundException
 from domains.ai_recipe.agent import AgentFailedError, AiRecipeAgent
@@ -46,6 +47,7 @@ class AiRecipeService:
                 timeout=AGENT_TIMEOUT_SECONDS,
             )
         except (TimeoutError, AgentFailedError, openai.OpenAIError) as exc:
+            logger.exception("AI recipe recommend failed")
             raise ExternalServiceException(
                 detail="AI 레시피 생성에 실패했습니다."
             ) from exc
@@ -97,6 +99,7 @@ class AiRecipeService:
                 timeout=AGENT_TIMEOUT_SECONDS,
             )
         except (TimeoutError, AgentFailedError, openai.OpenAIError) as exc:
+            logger.exception("AI recipe detail failed")
             raise ExternalServiceException(
                 detail="AI 레시피 상세 생성에 실패했습니다."
             ) from exc
