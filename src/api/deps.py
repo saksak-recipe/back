@@ -10,6 +10,8 @@ from domains.user.repository import UserRepository
 from domains.user.service import UserService
 from domains.user.model import User
 from domains.auth.service import AuthService
+from domains.rag.retriever import RecipeRetriever, get_recipe_retriever
+from domains.rag.service import RagService
 
 
 def get_user_repo(session: AsyncSession = Depends(get_db)) -> UserRepository:
@@ -44,3 +46,19 @@ def get_ingredient_service(
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
 ) -> IngredientService:
     return IngredientService(user=user, ingredient_repo=ingredient_repo)
+
+
+def get_rag_retriever() -> RecipeRetriever:
+    return get_recipe_retriever()
+
+
+def get_rag_service(
+    user: User = Depends(get_current_user),
+    ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
+    retriever: RecipeRetriever = Depends(get_rag_retriever),
+) -> RagService:
+    return RagService(
+        user=user,
+        ingredient_repo=ingredient_repo,
+        retriever=retriever,
+    )
