@@ -2,12 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from domains.ai_recipe.agent import (
-    AgentFailedError,
-    AiRecipeAgent,
-    TOP_K,
-    chat_model_kwargs,
-)
+from domains.ai_recipe.agent import AgentFailedError, AiRecipeAgent, TOP_K
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,
@@ -16,12 +11,6 @@ from domains.ai_recipe.schemas import (
     AiRecipeIngredient,
     AiRecipeStep,
 )
-
-
-def test_chat_model_kwargs_sets_low_reasoning_for_gpt5():
-    assert chat_model_kwargs("gpt-5-nano")["reasoning_effort"] == "low"
-    assert chat_model_kwargs("gpt-5-nano")["timeout"] == 35
-    assert "reasoning_effort" not in chat_model_kwargs("gpt-4o-mini")
 
 
 def _five_candidates() -> list[AiRecipeCandidate]:

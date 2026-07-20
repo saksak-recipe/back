@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -16,7 +16,8 @@ from domains.ai_recipe.schemas import (
 )
 
 TOP_K = 5
-LLM_TIMEOUT_SECONDS = 35
+# gpt-5-nano 기본 reasoning은 1분 전후까지 갈 수 있어 여유 있게 둔다.
+LLM_TIMEOUT_SECONDS = 120
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -40,14 +41,6 @@ DETAIL_SYSTEM = (
 )
 
 
-def chat_model_kwargs(model_name: str) -> dict[str, Any]:
-    """gpt-5 기본 reasoning은 종종 35초를 넘기므로 low로 품질·시간 균형."""
-    kwargs: dict[str, Any] = {"timeout": LLM_TIMEOUT_SECONDS}
-    if model_name.startswith("gpt-5"):
-        kwargs["reasoning_effort"] = "low"
-    return kwargs
-
-
 class AiRecipeAgent:
     def __init__(
         self,
@@ -58,7 +51,7 @@ class AiRecipeAgent:
         self._llm = llm or ChatOpenAI(
             model=self._model_name,
             api_key=settings.OPENAI_API_KEY.get_secret_value(),
-            **chat_model_kwargs(self._model_name),
+            timeout=LLM_TIMEOUT_SECONDS,
         )
 
     def run_list(self, owned_names: list[str]) -> list[AiRecipeCandidate]:
