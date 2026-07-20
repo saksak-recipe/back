@@ -1,3 +1,4 @@
+from loguru import logger
 from redis.asyncio import Redis
 
 from core.config import settings
@@ -7,8 +8,18 @@ _redis: Redis | None = None
 
 async def init_redis() -> None:
     global _redis
-    _redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    await _redis.ping()
+    try:
+        _redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    except Exception as exc:
+        logger.warning("Failed to create Redis client from URL: {}", exc)
+        raise
+    try:
+        await _redis.ping()
+    except Exception as exc:
+        logger.warning(
+            "Redis ping failed; server will start but Redis-backed operations may fail: {}",
+            exc,
+        )
 
 
 async def close_redis() -> None:
