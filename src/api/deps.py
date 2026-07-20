@@ -19,7 +19,6 @@ from domains.recipe_detail.crawler import RecipeCrawler
 from domains.recipe_detail.service import RecipeDetailService
 
 
-_recipe_detail_cache = RecipeDetailCache(ttl_seconds=86400)
 _recipe_crawler = RecipeCrawler()
 
 
@@ -81,4 +80,5 @@ def get_rag_service(
 def get_recipe_detail_service(
     user: User = Depends(get_current_user),
 ) -> RecipeDetailService:
-    return RecipeDetailService(crawler=_recipe_crawler, cache=_recipe_detail_cache)
+    cache = RecipeDetailCache(get_redis(), ttl_seconds=86400)
+    return RecipeDetailService(crawler=_recipe_crawler, cache=cache)
