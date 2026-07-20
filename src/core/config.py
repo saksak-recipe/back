@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: SecretStr
     OPENAI_API_KEY: SecretStr
+    AI_RECIPE_MODEL: str = "gpt-4o-mini"
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
