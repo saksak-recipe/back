@@ -57,7 +57,11 @@ class NotFoundException(BaseCustomException):
 
 
 class ConflictException(BaseCustomException):
-    def __init__(self, code: str | ErrorCode.CONFLICT, detail: str):
+    def __init__(
+        self,
+        code: str | ErrorCode = ErrorCode.CONFLICT,
+        detail: str = "리소스 충돌이 발생했습니다.",
+    ):
         super().__init__(status_code=409, code=code, detail=detail)
 
 
