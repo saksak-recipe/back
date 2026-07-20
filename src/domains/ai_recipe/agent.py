@@ -108,11 +108,13 @@ class AiRecipeAgent:
             for call in ai.tool_calls:
                 name = call["name"]
                 tool = tool_map.get(name)
-                output = (
-                    f"error: unknown tool {name}"
-                    if tool is None
-                    else tool.invoke(call.get("args") or {})
-                )
+                if tool is None:
+                    output = f"error: unknown tool {name}"
+                else:
+                    try:
+                        output = tool.invoke(call.get("args") or {})
+                    except Exception as exc:
+                        output = f"error: tool {name} failed: {exc}"
                 messages.append(
                     ToolMessage(content=str(output), tool_call_id=call["id"])
                 )

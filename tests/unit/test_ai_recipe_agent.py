@@ -54,6 +54,45 @@ def test_run_list_uses_tools_and_returns_candidates():
     assert candidates[0].recipe_name == "요리0"
 
 
+def test_run_list_recovers_after_invalid_tool_args():
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.invoke.side_effect = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "propose_recipe_candidates",
+                    "args": {"recipes": [{}, {}, {}, {}, {}]},
+                    "id": "invalid_call",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "propose_recipe_candidates",
+                    "args": {"recipes": _five_recipes()},
+                    "id": "valid_call",
+                }
+            ],
+        ),
+        AIMessage(content="done"),
+    ]
+
+    candidates = AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").run_list(["계란"])
+
+    assert len(candidates) == 5
+    retry_messages = llm.invoke.call_args_list[1].args[0]
+    error_message = next(
+        message
+        for message in retry_messages
+        if getattr(message, "tool_call_id", None) == "invalid_call"
+    )
+    assert str(error_message.content).startswith("error:")
+
+
 def test_run_list_raises_when_no_candidates():
     llm = MagicMock()
     llm.bind_tools.return_value = llm
