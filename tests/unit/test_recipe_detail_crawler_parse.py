@@ -27,9 +27,7 @@ def test_parse_detail_html_from_ld_json():
     assert detail.ingredients[0].name == "닭가슴살"
     assert detail.ingredients[0].amount == "200g"
     assert detail.steps[0].description == "재료를 준비한다."
-    assert detail.steps[0].image_url == "https://example.com/s1.jpg"
     assert any("기름" in tip for tip in detail.tips)
-    assert detail.steps[0].tip is None
 
 
 def test_parse_detail_html_supports_recipe_type_array():
@@ -51,3 +49,21 @@ async def test_fetch_detail_rejects_empty_parsed_response():
 
     with pytest.raises(ExternalServiceException):
         await crawler.fetch_detail("1")
+
+
+def test_parse_detail_html_extracts_tips_from_view_step_tip():
+    detail = parse_detail_html(
+        """
+        <html>
+          <body>
+            <dl class="view_step_tip">
+              <dt>tip</dt>
+              <dd>국물은 무와 다시마로 끓이면 깊은 맛이 나요.</dd>
+            </dl>
+          </body>
+        </html>
+        """,
+        recipe_id="6830820",
+    )
+
+    assert detail.tips == ["국물은 무와 다시마로 끓이면 깊은 맛이 나요."]

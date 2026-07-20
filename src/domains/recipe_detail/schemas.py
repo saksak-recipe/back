@@ -9,8 +9,6 @@ class RecipeIngredient(BaseModel):
 class RecipeStep(BaseModel):
     order: int
     description: str
-    tip: str | None = None
-    image_url: str | None = None
 
 
 class RecipeDetailResponse(BaseModel):

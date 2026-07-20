@@ -24,7 +24,11 @@ class RecipeCrawler:
     async def search(self, query: str) -> list[SearchCandidate]:
         html = await self._get(
             f"{BASE_URL}/recipe/list.html",
-            params={"q": query.strip()},
+            params={
+                "q": query.strip(),
+                "order": "accuracy",
+                "lastcate": "order",
+            },
         )
         try:
             return parse_search_html(html)
@@ -152,26 +156,26 @@ def parse_detail_html(html: str, recipe_id: str) -> RecipeDetailResponse:
     if isinstance(raw_steps, list):
         for order, step in enumerate(raw_steps, start=1):
             if isinstance(step, dict):
-                image_url = step.get("image")
-                if isinstance(image_url, list) and image_url:
-                    image_url = image_url[0]
                 steps.append(
                     RecipeStep(
                         order=order,
                         description=step.get("text")
                         if isinstance(step.get("text"), str)
                         else "",
-                        image_url=image_url if isinstance(image_url, str) else None,
                     )
                 )
             elif isinstance(step, str):
                 steps.append(RecipeStep(order=order, description=step))
 
-    tips = [
-        text
-        for tip in soup.select(".view_step .tip")
-        if (text := tip.get_text(strip=True))
-    ]
+    tips: list[str] = []
+    seen: set[str] = set()
+    for selector in (".view_step .tip", ".view_step_tip dd"):
+        for tip in soup.select(selector):
+            text = tip.get_text(strip=True)
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            tips.append(text)
 
     return RecipeDetailResponse(
         board_name="",
