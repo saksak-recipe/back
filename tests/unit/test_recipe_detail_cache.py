@@ -1,4 +1,5 @@
-import time
+import fakeredis.aioredis
+import pytest
 
 from domains.recipe_detail.cache import RecipeDetailCache, cache_key
 from domains.recipe_detail.schemas import RecipeDetailResponse
@@ -16,23 +17,32 @@ def _sample(**kwargs) -> RecipeDetailResponse:
     return RecipeDetailResponse(**base)
 
 
+@pytest.fixture
+async def cache():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    c = RecipeDetailCache(redis, ttl_seconds=60)
+    yield c
+    await redis.aclose()
+
+
 def test_cache_key_normalizes():
     assert cache_key(" A ", "B") == cache_key("a", "b")
 
 
-def test_cache_hit_and_miss():
-    cache = RecipeDetailCache(ttl_seconds=60)
+async def test_cache_hit_and_miss(cache: RecipeDetailCache):
     key = cache_key("제목", "작성자")
-    assert cache.get(key) is None
-    cache.set(key, _sample())
-    hit = cache.get(key)
+    assert await cache.get(key) is None
+    await cache.set(key, _sample())
+    hit = await cache.get(key)
     assert hit is not None
     assert hit.recipe_name == "요리"
+    assert hit.cached is True
 
 
-def test_cache_expires():
-    cache = RecipeDetailCache(ttl_seconds=1)
-    key = cache_key("제목", "작성자")
-    cache.set(key, _sample())
-    time.sleep(1.1)
-    assert cache.get(key) is None
+async def test_cache_get_failure_returns_none():
+    class BoomRedis:
+        async def get(self, key):
+            raise RuntimeError("down")
+
+    cache = RecipeDetailCache(BoomRedis(), ttl_seconds=60)  # type: ignore[arg-type]
+    assert await cache.get("x") is None

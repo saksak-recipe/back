@@ -16,7 +16,7 @@ class RecipeDetailService:
         author_name: str,
     ) -> RecipeDetailResponse:
         key = cache_key(board_name, author_name)
-        cached = self._cache.get(key)
+        cached = await self._cache.get(key)
         if cached is not None:
             return cached
 
@@ -34,5 +34,5 @@ class RecipeDetailService:
                 "cached": False,
             }
         )
-        self._cache.set(key, response)
+        await self._cache.set(key, response)
         return response

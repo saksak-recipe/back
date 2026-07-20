@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock
 
+import fakeredis.aioredis
 import pytest
 
 from core.exception.exceptions import ExternalServiceException, NotFoundException
@@ -15,11 +16,14 @@ def crawler() -> AsyncMock:
 
 
 @pytest.fixture
-def service(crawler: AsyncMock) -> RecipeDetailService:
-    return RecipeDetailService(
+async def service(crawler: AsyncMock):
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    svc = RecipeDetailService(
         crawler=crawler,
-        cache=RecipeDetailCache(ttl_seconds=60),
+        cache=RecipeDetailCache(redis, ttl_seconds=60),
     )
+    yield svc
+    await redis.aclose()
 
 
 async def test_get_detail_success_and_cache(

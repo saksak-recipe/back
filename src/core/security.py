@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 import uuid
 
 import jwt
@@ -16,7 +18,8 @@ from core.exception.exceptions import (
 )
 
 # 설정 및 상수
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
+REFRESH_TOKEN_EXPIRE_SECONDS = 14 * 24 * 60 * 60
 JWT_SECRET_KEY = settings.JWT_SECRET_KEY.get_secret_value()
 JWT_ALGORITHM = "HS256"
 
@@ -32,6 +35,14 @@ def hash_password(plain_password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_hasher.verify(plain_password, hashed_password)
+
+
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
 # JWT 토큰 관련

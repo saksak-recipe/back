@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: SecretStr
     OPENAI_API_KEY: SecretStr
 
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     @property
     def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD.get_secret_value()}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"

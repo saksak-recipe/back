@@ -14,7 +14,11 @@ os.environ.setdefault("DB_PASSWORD", "test")
 os.environ.setdefault("DB_NAME", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
+import fakeredis.aioredis
+
+from core import redis as redis_module
 from core import security  # noqa: E402
 from core.database import Base, get_db  # noqa: E402
 from domains.ingredient.model import Ingredient  # noqa: F401, E402
@@ -57,11 +61,18 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
             await db_session.rollback()
             raise
 
+    fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_module._redis = fake
+
     app.dependency_overrides[get_db] = override_get_db
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-    app.dependency_overrides.clear()
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.clear()
+        await fake.aclose()
+        redis_module._redis = None
 
 
 @pytest_asyncio.fixture
