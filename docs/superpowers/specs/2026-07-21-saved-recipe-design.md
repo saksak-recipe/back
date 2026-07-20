@@ -164,6 +164,8 @@ Response `204`
 
 ### `GET /recipes/saved/status`
 
+라우터 등록 시 `{id}` 경로보다 **먼저** 선언한다. (`status`가 id로 매칭되지 않도록)
+
 Query: `source`, `source_id`
 
 Response `200`:
@@ -185,7 +187,7 @@ Response `200`:
 | 상황 | 예외 |
 |------|------|
 | JWT 없음/만료 | `UnAuthorizedException` |
-| source/source_id 형식 오류 | validation / `BadRequest`(프로젝트 기존 패턴) |
+| source/source_id 형식 오류 | `BadRequestException` |
 | 원본 레시피 없음 (AI Redis miss, 만개 검색 실패) | `NotFoundException` |
 | 이미 저장됨 | `ConflictException` |
 | 내 저장본 없음 | `NotFoundException` (존재 여부 노출 최소화) |
