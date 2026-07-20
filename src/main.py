@@ -1,8 +1,10 @@
+from contextlib import asynccontextmanager
+
+import time
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-
-import time
 
 from api.api import api_router
 from core.exception.exceptions import BaseCustomException
@@ -13,9 +15,17 @@ from core.exception.handlers import (
     system_exception_handler,
 )
 from core.logger import setup_logger
+from core.redis import close_redis, init_redis
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_redis()
+    yield
+    await close_redis()
+
+
+app = FastAPI(lifespan=lifespan)
 
 setup_logger()
 
