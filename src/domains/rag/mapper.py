@@ -32,8 +32,39 @@ def parse_page_content(page_content: str) -> tuple[str, str]:
     return recipe_name, parsed_ingredients
 
 
+def split_ingredient_names(raw: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for part in raw.split(","):
+        name = part.strip()
+        if not name:
+            continue
+        key = normalize_name(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
+
+
+def classify_ingredients(
+    recipe_ingredients: list[str], owned_names: list[str]
+) -> tuple[list[str], list[str]]:
+    owned_set = {normalize_name(n) for n in owned_names if normalize_name(n)}
+    owned: list[str] = []
+    missing: list[str] = []
+    for name in recipe_ingredients:
+        if normalize_name(name) in owned_set:
+            owned.append(name)
+        else:
+            missing.append(name)
+    return owned, missing
+
+
 def map_document_to_recipe(
-    doc: Document, score: float
+    doc: Document,
+    score: float,
+    owned_names: list[str] | None = None,
 ) -> RecipeRecommendation | None:
     content_name, parsed_ingredients = parse_page_content(doc.page_content)
     meta = doc.metadata or {}
@@ -41,9 +72,14 @@ def map_document_to_recipe(
     recipe_name = str(meta.get("recipe_name", "") or "").strip() or content_name
     if not recipe_name:
         return None
+
+    ingredients = split_ingredient_names(parsed_ingredients)
+    owned, missing = classify_ingredients(ingredients, owned_names or [])
+
     return RecipeRecommendation(
         recipe_name=recipe_name,
-        parsed_ingredients=parsed_ingredients,
+        owned_ingredients=owned,
+        missing_ingredients=missing,
         board_name=str(meta.get("board_name", "") or ""),
         author_name=str(meta.get("author_name", "") or ""),
         recipe_difficulty=str(meta.get("recipe_difficulty", "") or ""),

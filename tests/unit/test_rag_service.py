@@ -1,5 +1,5 @@
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import uuid6
@@ -7,7 +7,7 @@ from langchain_core.documents import Document
 
 from domains.ingredient.model import Ingredient
 from domains.rag.retriever import RecipeRetriever
-from domains.rag.service import SEARCH_CANDIDATE_K, RagService
+from domains.rag.service import CANDIDATE_POOL_K, SEARCH_CANDIDATE_K, TOP_K, RagService
 from domains.user.model import User
 
 
@@ -37,6 +37,18 @@ def rag_service(user, ingredient_repo, retriever) -> RagService:
         user=user,
         ingredient_repo=ingredient_repo,
         retriever=retriever,
+    )
+
+
+def _doc(name: str, ingredients: str = "계란") -> Document:
+    return Document(
+        page_content=f"recipe_name: {name}\nparsed_ingredients: {ingredients}",
+        metadata={
+            "board_name": "한식",
+            "author_name": "kim",
+            "recipe_difficulty": "초급",
+            "time": "15분",
+        },
     )
 
 
@@ -88,6 +100,8 @@ async def test_recommend_maps_search_results(
     assert result.ingredients_used == ["계란", "양파"]
     assert len(result.recipes) == 1
     assert result.recipes[0].recipe_name == "계란볶음밥"
+    assert result.recipes[0].owned_ingredients == ["계란", "양파"]
+    assert result.recipes[0].missing_ingredients == ["밥"]
     assert result.recipes[0].score == 0.2
     retriever.search.assert_called_once_with(
         "parsed_ingredients: 계란, 양파", k=SEARCH_CANDIDATE_K
@@ -159,3 +173,36 @@ async def test_recommend_skips_unparsable_documents(
 
     assert len(result.recipes) == 1
     assert result.recipes[0].recipe_name == "된장찌개"
+
+
+async def test_recommend_samples_five_from_top_fifteen_pool(
+    rag_service: RagService,
+    ingredient_repo: AsyncMock,
+    retriever: MagicMock,
+    user: User,
+):
+    ingredient_repo.get_ingredients.return_value = [
+        Ingredient(
+            id=1,
+            user_id=user.id,
+            ingredient_name="계란",
+            purchase_date=date.today(),
+        )
+    ]
+    retriever.search.return_value = [
+        (_doc(f"레시피{i}"), float(i) / 100) for i in range(SEARCH_CANDIDATE_K)
+    ]
+
+    with patch(
+        "domains.rag.service.random.sample", wraps=__import__("random").sample
+    ) as sample:
+        result = await rag_service.recommend_recipes()
+
+    assert len(result.recipes) == TOP_K
+    sample.assert_called_once()
+    pool = sample.call_args.args[0]
+    assert len(pool) == CANDIDATE_POOL_K
+    assert sample.call_args.args[1] == TOP_K
+    assert {r.recipe_name for r in result.recipes} <= {
+        f"레시피{i}" for i in range(CANDIDATE_POOL_K)
+    }

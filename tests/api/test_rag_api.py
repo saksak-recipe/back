@@ -68,6 +68,9 @@ async def test_recommendations_returns_mapped_recipes(
         assert set(body["ingredients_used"]) == {"계란", "양파"}
         assert len(body["recipes"]) == 1
         assert body["recipes"][0]["recipe_name"] == "계란볶음밥"
+        assert body["recipes"][0]["owned_ingredients"] == ["계란", "양파"]
+        assert body["recipes"][0]["missing_ingredients"] == ["밥"]
+        assert "parsed_ingredients" not in body["recipes"][0]
         assert body["recipes"][0]["score"] == 0.25
         mock_retriever.search.assert_called_once()
         called_query = mock_retriever.search.call_args.args[0]
