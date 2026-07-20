@@ -44,3 +44,14 @@ def test_decode_jwt_raises_for_expired_token():
 def test_decode_jwt_raises_for_invalid_token():
     with pytest.raises(InvalidTokenException):
         security.decode_jwt("invalid.token.value")
+
+
+def test_kakao_signup_token_roundtrip():
+    token = security.create_kakao_signup_token("1234567890")
+    assert security.decode_kakao_signup_token(token) == "1234567890"
+
+
+def test_kakao_signup_token_rejects_access_jwt():
+    access = security.create_jwt(uuid.uuid4())
+    with pytest.raises(InvalidTokenException):
+        security.decode_kakao_signup_token(access)

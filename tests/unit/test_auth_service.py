@@ -75,6 +75,137 @@ async def test_login_raises_on_wrong_password(
         )
 
 
+async def test_login_rejects_kakao_only_user(
+    auth_service: AuthService, user_repo: AsyncMock
+):
+    kakao_user = User(
+        id=uuid6.uuid7(),
+        email="kakao@example.com",
+        password=None,
+        kakao_id="1234567890",
+        nickname="kakaouser",
+    )
+    user_repo.get_user_by_email.return_value = kakao_user
+
+    with pytest.raises(UnAuthorizedException, match="카카오로 로그인해 주세요"):
+        await auth_service.login(
+            LogInRequest(email="kakao@example.com", password="password123")
+        )
+
+
+async def test_login_with_kakao_returns_tokens_for_existing_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    refresh_store: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    kakao_user = User(
+        id=uuid6.uuid7(),
+        email="kakao@example.com",
+        password=None,
+        kakao_id="1234567890",
+        nickname="kakaouser",
+    )
+    user_repo.get_user_by_kakao_id.return_value = kakao_user
+
+    async def fake_fetch(_token: str) -> str:
+        return "1234567890"
+
+    monkeypatch.setattr(
+        "domains.auth.kakao_client.fetch_kakao_user_id", fake_fetch
+    )
+
+    response = await auth_service.login_with_kakao("kakao-access-token")
+
+    assert response.status == "authenticated"
+    assert response.info.email == "kakao@example.com"
+    assert response.access_token
+    assert response.refresh_token
+    refresh_store.save.assert_awaited_once()
+
+
+async def test_login_with_kakao_returns_needs_profile_for_new_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    user_repo.get_user_by_kakao_id.return_value = None
+
+    async def fake_fetch(_token: str) -> str:
+        return "999888777"
+
+    monkeypatch.setattr(
+        "domains.auth.kakao_client.fetch_kakao_user_id", fake_fetch
+    )
+
+    response = await auth_service.login_with_kakao("kakao-access-token")
+
+    assert response.status == "needs_profile"
+    assert response.signup_token
+    assert security.decode_kakao_signup_token(response.signup_token) == "999888777"
+
+
+async def test_complete_kakao_signup_creates_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    refresh_store: AsyncMock,
+):
+    user_repo.get_user_by_kakao_id.return_value = None
+    user_repo.get_user_by_email.return_value = None
+    user_repo.get_user_by_nickname.return_value = None
+
+    created = User(
+        id=uuid6.uuid7(),
+        email="new@example.com",
+        password=None,
+        kakao_id="999888777",
+        nickname="newbie",
+    )
+    user_repo.add_user.return_value = created
+
+    signup_token = security.create_kakao_signup_token("999888777")
+    from domains.auth.schemas import KakaoCompleteRequest
+
+    response = await auth_service.complete_kakao_signup(
+        KakaoCompleteRequest(
+            signup_token=signup_token,
+            nickname="newbie",
+            email="new@example.com",
+        )
+    )
+
+    assert response.status == "authenticated"
+    assert response.info.nickname == "newbie"
+    user_repo.add_user.assert_awaited_once()
+    refresh_store.save.assert_awaited_once()
+
+
+async def test_complete_kakao_signup_rejects_email_conflict(
+    auth_service: AuthService, user_repo: AsyncMock
+):
+    from core.exception.exceptions import ConflictException
+    from domains.auth.schemas import KakaoCompleteRequest
+
+    user_repo.get_user_by_kakao_id.return_value = None
+    user_repo.get_user_by_email.return_value = User(
+        id=uuid6.uuid7(),
+        email="taken@example.com",
+        password=security.hash_password("password123"),
+        nickname="other",
+    )
+
+    signup_token = security.create_kakao_signup_token("999888777")
+
+    with pytest.raises(ConflictException):
+        await auth_service.complete_kakao_signup(
+            KakaoCompleteRequest(
+                signup_token=signup_token,
+                nickname="newbie",
+                email="taken@example.com",
+            )
+        )
+
+
 async def test_refresh_rotates_tokens(
     auth_service: AuthService,
     user_repo: AsyncMock,

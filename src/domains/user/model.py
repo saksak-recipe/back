@@ -15,7 +15,8 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid6.uuid7
     )
     email: Mapped[str] = mapped_column(String(128), unique=True)
-    password: Mapped[str] = mapped_column(String(128))
+    password: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    kakao_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     nickname: Mapped[str] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -25,6 +26,11 @@ class User(Base):
         "Ingredient",
         back_populates="user",
         cascade="all, delete-orphan"
+    )
+    saved_recipes: Mapped[list["SavedRecipe"]] = relationship(
+        "SavedRecipe",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (

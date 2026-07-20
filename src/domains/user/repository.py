@@ -35,6 +35,10 @@ class UserRepository:
         """닉네임(대소문자 무시)으로 조회"""
         return await self._get_one(func.lower(User.nickname) == nickname.lower())
 
+    async def get_user_by_kakao_id(self, kakao_id: str) -> User | None:
+        """카카오 회원번호로 조회"""
+        return await self._get_one(User.kakao_id == kakao_id)
+
     async def add_user(self, user: User):
         self.session.add(user)
         await self.session.flush()
