@@ -1,6 +1,10 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 
-from domains.recipe_detail.crawler import parse_detail_html, parse_search_html
+import pytest
+
+from core.exception.exceptions import ExternalServiceException
+from domains.recipe_detail.crawler import RecipeCrawler, parse_detail_html, parse_search_html
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -24,6 +28,26 @@ def test_parse_detail_html_from_ld_json():
     assert detail.ingredients[0].amount == "200g"
     assert detail.steps[0].description == "재료를 준비한다."
     assert detail.steps[0].image_url == "https://example.com/s1.jpg"
-    assert any("기름" in t for t in detail.tips) or (
-        detail.steps[0].tip is not None and "기름" in detail.steps[0].tip
+    assert any("기름" in tip for tip in detail.tips)
+    assert detail.steps[0].tip is None
+
+
+def test_parse_detail_html_supports_recipe_type_array():
+    detail = parse_detail_html(
+        """
+        <script type="application/ld+json">
+          {"@type": ["Thing", "Recipe"], "name": "배열 레시피"}
+        </script>
+        """,
+        recipe_id="1",
     )
+
+    assert detail.recipe_name == "배열 레시피"
+
+
+async def test_fetch_detail_rejects_empty_parsed_response():
+    crawler = RecipeCrawler()
+    crawler._get = AsyncMock(return_value="<html></html>")  # type: ignore[method-assign]
+
+    with pytest.raises(ExternalServiceException):
+        await crawler.fetch_detail("1")

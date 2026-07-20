@@ -34,7 +34,10 @@ class RecipeCrawler:
     async def fetch_detail(self, recipe_id: str) -> RecipeDetailResponse:
         html = await self._get(f"{BASE_URL}/recipe/{recipe_id}")
         try:
-            return parse_detail_html(html, recipe_id)
+            detail = parse_detail_html(html, recipe_id)
+            if not detail.recipe_name and not detail.ingredients and not detail.steps:
+                raise ExternalServiceException("레시피 상세 정보가 비어 있어요")
+            return detail
         except Exception as exc:
             raise ExternalServiceException("레시피 상세 정보를 파싱하지 못했어요") from exc
 
@@ -109,7 +112,10 @@ def _load_recipe_ld(soup: BeautifulSoup) -> dict[str, object] | None:
             candidates = [data]
 
         for item in candidates:
-            if isinstance(item, dict) and item.get("@type") == "Recipe":
+            recipe_type = item.get("@type") if isinstance(item, dict) else None
+            if recipe_type == "Recipe" or (
+                isinstance(recipe_type, list) and "Recipe" in recipe_type
+            ):
                 return item
 
     return None
@@ -166,8 +172,6 @@ def parse_detail_html(html: str, recipe_id: str) -> RecipeDetailResponse:
         for tip in soup.select(".view_step .tip")
         if (text := tip.get_text(strip=True))
     ]
-    if tips and steps:
-        steps[0] = steps[0].model_copy(update={"tip": tips[0]})
 
     return RecipeDetailResponse(
         board_name="",
