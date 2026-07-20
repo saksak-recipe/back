@@ -1,12 +1,18 @@
 import asyncio
 
 from domains.ingredient.repository import IngredientRepository
-from domains.rag.mapper import build_ingredient_query, map_document_to_recipe
+from domains.rag.mapper import (
+    build_ingredient_query,
+    is_recipe_name_in_ingredients,
+    map_document_to_recipe,
+)
 from domains.rag.retriever import RecipeRetriever
 from domains.rag.schemas import RecipeRecommendationResponse
 from domains.user.model import User
 
 TOP_K = 5
+# 레시피명=식재료명 충돌·중복을 걸러도 TOP_K를 채우기 위해 여유 있게 조회
+SEARCH_CANDIDATE_K = 50
 
 
 class RagService:
@@ -28,14 +34,25 @@ class RagService:
 
         query = build_ingredient_query(names)
         docs_with_scores = await asyncio.to_thread(
-            self.retriever.search, query, k=TOP_K
+            self.retriever.search, query, k=SEARCH_CANDIDATE_K
         )
 
         recipes = []
+        seen: set[tuple[str, str]] = set()
         for doc, score in docs_with_scores:
             mapped = map_document_to_recipe(doc, score)
-            if mapped is not None:
-                recipes.append(mapped)
+            if mapped is None:
+                continue
+            # 보유 식재료와 같은 이름의 레시피(예: 김가루)는 제외 — 재료 유사도만 남김
+            if is_recipe_name_in_ingredients(mapped.recipe_name, names):
+                continue
+            key = (mapped.recipe_name, mapped.parsed_ingredients)
+            if key in seen:
+                continue
+            seen.add(key)
+            recipes.append(mapped)
+            if len(recipes) >= TOP_K:
+                break
 
         return RecipeRecommendationResponse(
             ingredients_used=names,

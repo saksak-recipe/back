@@ -7,7 +7,7 @@ from langchain_core.documents import Document
 
 from domains.ingredient.model import Ingredient
 from domains.rag.retriever import RecipeRetriever
-from domains.rag.service import RagService
+from domains.rag.service import SEARCH_CANDIDATE_K, RagService
 from domains.user.model import User
 
 
@@ -90,8 +90,48 @@ async def test_recommend_maps_search_results(
     assert result.recipes[0].recipe_name == "계란볶음밥"
     assert result.recipes[0].score == 0.2
     retriever.search.assert_called_once_with(
-        "parsed_ingredients: 계란, 양파", k=5
+        "parsed_ingredients: 계란, 양파", k=SEARCH_CANDIDATE_K
     )
+
+
+async def test_recommend_filters_recipes_named_like_ingredients(
+    rag_service: RagService,
+    ingredient_repo: AsyncMock,
+    retriever: MagicMock,
+    user: User,
+):
+    ingredient_repo.get_ingredients.return_value = [
+        Ingredient(
+            id=1,
+            user_id=user.id,
+            ingredient_name="김가루",
+            purchase_date=date.today(),
+        ),
+        Ingredient(
+            id=2,
+            user_id=user.id,
+            ingredient_name="계란",
+            purchase_date=date.today(),
+        ),
+    ]
+    name_collision = Document(
+        page_content="recipe_name: 김가루\nparsed_ingredients: 김, 참기름",
+        metadata={},
+    )
+    real_recipe = Document(
+        page_content="recipe_name: 김치볶음밥\nparsed_ingredients: 김치, 계란, 밥",
+        metadata={},
+    )
+    retriever.search.return_value = [
+        (name_collision, 0.1),
+        (name_collision, 0.1),
+        (real_recipe, 0.3),
+    ]
+
+    result = await rag_service.recommend_recipes()
+
+    assert len(result.recipes) == 1
+    assert result.recipes[0].recipe_name == "김치볶음밥"
 
 
 async def test_recommend_skips_unparsable_documents(

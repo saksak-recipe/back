@@ -7,6 +7,20 @@ def build_ingredient_query(names: list[str]) -> str:
     return "parsed_ingredients: " + ", ".join(names)
 
 
+def normalize_name(name: str) -> str:
+    return name.strip().casefold().replace(" ", "")
+
+
+def is_recipe_name_in_ingredients(
+    recipe_name: str, ingredient_names: list[str]
+) -> bool:
+    """레시피명이 보유 식재료와 같으면 재료명 매칭으로 본다."""
+    normalized_recipe = normalize_name(recipe_name)
+    if not normalized_recipe:
+        return False
+    return normalized_recipe in {normalize_name(n) for n in ingredient_names}
+
+
 def parse_page_content(page_content: str) -> tuple[str, str]:
     recipe_name = ""
     parsed_ingredients = ""
@@ -21,10 +35,12 @@ def parse_page_content(page_content: str) -> tuple[str, str]:
 def map_document_to_recipe(
     doc: Document, score: float
 ) -> RecipeRecommendation | None:
-    recipe_name, parsed_ingredients = parse_page_content(doc.page_content)
+    content_name, parsed_ingredients = parse_page_content(doc.page_content)
+    meta = doc.metadata or {}
+    # 신규 적재: recipe_name은 metadata. 구 적재: page_content에 포함.
+    recipe_name = str(meta.get("recipe_name", "") or "").strip() or content_name
     if not recipe_name:
         return None
-    meta = doc.metadata or {}
     return RecipeRecommendation(
         recipe_name=recipe_name,
         parsed_ingredients=parsed_ingredients,
