@@ -40,7 +40,7 @@ def test_propose_rejects_wrong_count():
     result = tools["propose_recipe_candidates"].invoke(
         {"recipes": [{"recipe_name": "하나만", "recipe_ingredients": ["계란"]}]}
     )
-    assert "5" in result
+    assert "5" in result  # error mentioning need 5
     assert session.candidates == []
 
 

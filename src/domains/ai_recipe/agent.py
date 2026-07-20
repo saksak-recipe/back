@@ -12,8 +12,6 @@ from domains.ai_recipe.schemas import AiRecipeCacheRecord, AiRecipeCandidate
 from domains.ai_recipe.tools import TOP_K, AgentSession, build_tools
 
 MAX_TOOL_LOOPS = 8
-# gpt-5-nano 기본 reasoning + 멀티 툴 루프를 위해 여유를 둔다.
-LLM_TIMEOUT_SECONDS = 120
 
 
 class AgentFailedError(Exception):
@@ -46,7 +44,7 @@ class AiRecipeAgent:
         self._llm = llm or ChatOpenAI(
             model=self._model_name,
             api_key=settings.OPENAI_API_KEY.get_secret_value(),
-            timeout=LLM_TIMEOUT_SECONDS,
+            timeout=60,
         )
 
     def run_list(self, owned_names: list[str]) -> list[AiRecipeCandidate]:
