@@ -2,12 +2,18 @@ from pydantic import BaseModel, Field
 
 
 class AiRecipeCandidate(BaseModel):
-    """에이전트가 propose_recipe_candidates로 제출하는 후보."""
+    """LLM structured output 목록 후보."""
 
     recipe_name: str
     recipe_ingredients: list[str] = Field(default_factory=list)
     recipe_difficulty: str = ""
     time: str = ""
+
+
+class AiRecipeCandidateList(BaseModel):
+    """목록 생성용 structured output 래퍼."""
+
+    recipes: list[AiRecipeCandidate] = Field(default_factory=list)
 
 
 class AiRecipeIngredient(BaseModel):
@@ -18,6 +24,14 @@ class AiRecipeIngredient(BaseModel):
 class AiRecipeStep(BaseModel):
     order: int
     description: str
+
+
+class AiRecipeDetailPayload(BaseModel):
+    """상세 생성용 structured output."""
+
+    ingredients: list[AiRecipeIngredient] = Field(default_factory=list)
+    steps: list[AiRecipeStep] = Field(default_factory=list)
+    tips: list[str] = Field(default_factory=list)
 
 
 class AiRecipeRecommendation(BaseModel):
