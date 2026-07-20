@@ -13,6 +13,7 @@ os.environ.setdefault("DB_USER", "test")
 os.environ.setdefault("DB_PASSWORD", "test")
 os.environ.setdefault("DB_NAME", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
+os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
 from core import security  # noqa: E402
 from core.database import Base, get_db  # noqa: E402
