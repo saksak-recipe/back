@@ -1,3 +1,4 @@
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import openai
@@ -5,6 +6,7 @@ import pytest
 
 from core.exception.exceptions import ExternalServiceException, NotFoundException
 from domains.ai_recipe.agent import AgentFailedError
+from domains.ai_recipe import service as service_module
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,
@@ -85,6 +87,24 @@ async def test_recommend_maps_agent_failure(user, agent_error):
     cache = AsyncMock()
     service = AiRecipeService(
         user=user, ingredient_repo=repo, agent=agent, cache=cache
+    )
+
+    with pytest.raises(
+        ExternalServiceException, match="AI 레시피 생성에 실패했습니다."
+    ):
+        await service.recommend()
+
+
+async def test_recommend_maps_agent_timeout(user, monkeypatch):
+    monkeypatch.setattr(service_module, "AGENT_TIMEOUT_SECONDS", 0.01)
+    repo = AsyncMock()
+    item = MagicMock()
+    item.ingredient_name = "계란"
+    repo.get_ingredients.return_value = [item]
+    agent = MagicMock()
+    agent.run_list.side_effect = lambda _names: time.sleep(0.05)
+    service = AiRecipeService(
+        user=user, ingredient_repo=repo, agent=agent, cache=AsyncMock()
     )
 
     with pytest.raises(
@@ -175,6 +195,28 @@ async def test_detail_maps_agent_failure(user):
     )
     agent = MagicMock()
     agent.run_detail.side_effect = AgentFailedError("fail")
+    repo = AsyncMock()
+    repo.get_ingredients.return_value = []
+    service = AiRecipeService(
+        user=user, ingredient_repo=repo, agent=agent, cache=cache
+    )
+
+    with pytest.raises(
+        ExternalServiceException, match="AI 레시피 상세 생성에 실패했습니다."
+    ):
+        await service.get_detail("rid")
+
+
+async def test_detail_maps_agent_timeout(user, monkeypatch):
+    monkeypatch.setattr(service_module, "AGENT_TIMEOUT_SECONDS", 0.01)
+    cache = AsyncMock()
+    cache.get.return_value = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란"],
+    )
+    agent = MagicMock()
+    agent.run_detail.side_effect = lambda _names, _record: time.sleep(0.05)
     repo = AsyncMock()
     repo.get_ingredients.return_value = []
     service = AiRecipeService(

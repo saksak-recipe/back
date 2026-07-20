@@ -18,6 +18,8 @@ from domains.ingredient.repository import IngredientRepository
 from domains.rag.mapper import classify_ingredients
 from domains.user.model import User
 
+AGENT_TIMEOUT_SECONDS = 60
+
 
 class AiRecipeService:
     def __init__(
@@ -39,8 +41,11 @@ class AiRecipeService:
             return AiRecipeRecommendationResponse(ingredients_used=[], recipes=[])
 
         try:
-            candidates = await asyncio.to_thread(self.agent.run_list, names)
-        except (AgentFailedError, openai.OpenAIError) as exc:
+            candidates = await asyncio.wait_for(
+                asyncio.to_thread(self.agent.run_list, names),
+                timeout=AGENT_TIMEOUT_SECONDS,
+            )
+        except (TimeoutError, AgentFailedError, openai.OpenAIError) as exc:
             raise ExternalServiceException(
                 detail="AI 레시피 생성에 실패했습니다."
             ) from exc
@@ -87,8 +92,11 @@ class AiRecipeService:
         ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
         names = [item.ingredient_name for item in ingredients]
         try:
-            detail = await asyncio.to_thread(self.agent.run_detail, names, record)
-        except (AgentFailedError, openai.OpenAIError) as exc:
+            detail = await asyncio.wait_for(
+                asyncio.to_thread(self.agent.run_detail, names, record),
+                timeout=AGENT_TIMEOUT_SECONDS,
+            )
+        except (TimeoutError, AgentFailedError, openai.OpenAIError) as exc:
             raise ExternalServiceException(
                 detail="AI 레시피 상세 생성에 실패했습니다."
             ) from exc

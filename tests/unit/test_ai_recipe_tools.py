@@ -1,6 +1,5 @@
 import json
 
-from domains.ai_recipe.schemas import AiRecipeCandidate
 from domains.ai_recipe.tools import AgentSession, build_tools
 
 
