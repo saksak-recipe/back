@@ -19,7 +19,7 @@ from domains.ingredient.repository import IngredientRepository
 from domains.rag.mapper import classify_ingredients
 from domains.user.model import User
 
-AGENT_TIMEOUT_SECONDS = 20
+AGENT_TIMEOUT_SECONDS = 35
 
 
 class AiRecipeService:

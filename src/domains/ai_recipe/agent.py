@@ -16,7 +16,7 @@ from domains.ai_recipe.schemas import (
 )
 
 TOP_K = 5
-LLM_TIMEOUT_SECONDS = 20
+LLM_TIMEOUT_SECONDS = 35
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -41,10 +41,10 @@ DETAIL_SYSTEM = (
 
 
 def chat_model_kwargs(model_name: str) -> dict[str, Any]:
-    """gpt-5 계열은 기본 reasoning이 너무 길어 타임아웃 나므로 minimal로 고정."""
+    """gpt-5 기본 reasoning은 종종 35초를 넘기므로 low로 품질·시간 균형."""
     kwargs: dict[str, Any] = {"timeout": LLM_TIMEOUT_SECONDS}
     if model_name.startswith("gpt-5"):
-        kwargs["reasoning_effort"] = "minimal"
+        kwargs["reasoning_effort"] = "low"
     return kwargs
 
 
