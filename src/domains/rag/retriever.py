@@ -1,5 +1,7 @@
 from functools import lru_cache
 
+import openai
+import psycopg
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
@@ -15,12 +17,15 @@ class RecipeRetriever:
     def search(self, query: str, k: int = 5) -> list[tuple[Document, float]]:
         try:
             return self._vector_store.similarity_search_with_score(query, k=k)
+        except openai.OpenAIError as e:
+            raise ExternalServiceException(
+                detail="레시피 임베딩 요청 중 오류가 발생했습니다."
+            ) from e
+        except psycopg.Error as e:
+            raise DatabaseException(
+                detail="레시피 벡터 검색 중 DB 오류가 발생했습니다."
+            ) from e
         except Exception as e:
-            message = str(e).lower()
-            if "openai" in message or "embedding" in message or "api" in message:
-                raise ExternalServiceException(
-                    detail="레시피 임베딩 요청 중 오류가 발생했습니다."
-                ) from e
             raise DatabaseException(
                 detail="레시피 벡터 검색 중 DB 오류가 발생했습니다."
             ) from e
