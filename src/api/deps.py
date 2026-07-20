@@ -2,7 +2,9 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from core.security import get_access_token
+from core.redis import get_redis
+from core.security import REFRESH_TOKEN_EXPIRE_SECONDS, get_access_token
+from domains.auth.refresh_store import RefreshTokenStore
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.service import IngredientService
 
@@ -29,10 +31,15 @@ def get_user_service(user_repo: UserRepository = Depends(get_user_repo)) -> User
     return UserService(user_repo=user_repo)
 
 
+def get_refresh_store() -> RefreshTokenStore:
+    return RefreshTokenStore(get_redis(), ttl_seconds=REFRESH_TOKEN_EXPIRE_SECONDS)
+
+
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repo),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_store),
 ) -> AuthService:
-    return AuthService(user_repo=user_repo)
+    return AuthService(user_repo=user_repo, refresh_store=refresh_store)
 
 
 async def get_current_user(

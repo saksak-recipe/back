@@ -34,9 +34,8 @@ class SignUpRequest(BaseModel):
 
 class SignUpResponse(BaseModel):
     info: UserInfoResponse
-    access_token: str | None = Field(
-        default=None, description="회원가입 후 즉시 로그인 시 발급되는 토큰"
-    )
+    access_token: str
+    refresh_token: str
 
 
 class LogInRequest(BaseModel):
@@ -47,3 +46,8 @@ class LogInRequest(BaseModel):
 class LogInResponse(BaseModel):
     info: UserInfoResponse
     access_token: str = Field(..., description="인증을 위한 액세스 토큰")
+    refresh_token: str = Field(..., description="액세스 토큰 갱신용 리프레시 토큰")
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., description="리프레시 토큰")
