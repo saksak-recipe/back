@@ -12,6 +12,13 @@ from domains.user.model import User
 from domains.auth.service import AuthService
 from domains.rag.retriever import RecipeRetriever, get_recipe_retriever
 from domains.rag.service import RagService
+from domains.recipe_detail.cache import RecipeDetailCache
+from domains.recipe_detail.crawler import RecipeCrawler
+from domains.recipe_detail.service import RecipeDetailService
+
+
+_recipe_detail_cache = RecipeDetailCache(ttl_seconds=86400)
+_recipe_crawler = RecipeCrawler()
 
 
 def get_user_repo(session: AsyncSession = Depends(get_db)) -> UserRepository:
@@ -62,3 +69,9 @@ def get_rag_service(
         ingredient_repo=ingredient_repo,
         retriever=retriever,
     )
+
+
+def get_recipe_detail_service(
+    user: User = Depends(get_current_user),
+) -> RecipeDetailService:
+    return RecipeDetailService(crawler=_recipe_crawler, cache=_recipe_detail_cache)
