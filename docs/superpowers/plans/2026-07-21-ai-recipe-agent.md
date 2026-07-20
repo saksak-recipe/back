@@ -223,16 +223,16 @@ EOF
 
 ```python
 # tests/unit/test_ai_recipe_cache.py
+import fakeredis.aioredis
 import pytest
-from fakeredis import FakeAsyncRedis
 
 from domains.ai_recipe.cache import AiRecipeCache
 from domains.ai_recipe.schemas import AiRecipeCacheRecord
 
 
 @pytest.fixture
-async def cache():
-    redis = FakeAsyncRedis(decode_responses=True)
+def cache():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     return AiRecipeCache(redis, ttl_seconds=86400)
 
 
