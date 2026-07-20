@@ -35,6 +35,7 @@ async def recommend_recipes(
 @router.get(
     "/detail",
     status_code=status.HTTP_200_OK,
+    summary="만개의 레시피 기반 크롤링 검색",
     response_model=RecipeDetailResponse,
     responses=create_error_response(
         UnAuthorizedException,
