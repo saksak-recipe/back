@@ -81,12 +81,15 @@ def parse_search_html(html: str) -> list[SearchCandidate]:
 
         recipe_id = href.rstrip("/").split("/")[-1]
         title = item.select_one(".common_sp_caption_tit")
-        author = item.select_one(".common_sp_caption_rv_name b")
+        # 실제 마크업은 <a>닉네임</a> 이고, 구형/픽스처는 <b>닉네임</b> 일 수 있음
+        author_el = item.select_one(".common_sp_caption_rv_name a") or item.select_one(
+            ".common_sp_caption_rv_name"
+        )
         results.append(
             SearchCandidate(
                 recipe_id=recipe_id,
                 title=title.get_text(strip=True) if title else "",
-                author=author.get_text(strip=True) if author else "",
+                author=author_el.get_text(strip=True) if author_el else "",
             )
         )
 

@@ -18,6 +18,24 @@ def test_parse_search_html_extracts_candidates():
     assert items[0].author == "GP하루한끼"
 
 
+def test_parse_search_html_reads_author_from_anchor():
+    items = parse_search_html(
+        """
+        <li class="common_sp_list_li">
+          <a class="common_sp_link" href="/recipe/6830820"></a>
+          <div class="common_sp_caption_tit">갈치조림 레시피</div>
+          <div class="common_sp_caption_rv_name">
+            <a href="/profile/recipe.html?uid=x">
+              <img src="https://example.com/a.jpg"/>요리하는최여사
+            </a>
+          </div>
+        </li>
+        """
+    )
+    assert items[0].recipe_id == "6830820"
+    assert items[0].author == "요리하는최여사"
+
+
 def test_parse_detail_html_from_ld_json():
     html = (FIXTURES / "10000recipe_detail.html").read_text(encoding="utf-8")
     detail = parse_detail_html(html, recipe_id="6891574")
