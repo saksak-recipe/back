@@ -17,8 +17,9 @@ async def signup(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> SignUpResponse:
     user = await user_service.sign_up(request)
-    access_token = await auth_service.issue_tokens(user)
+    tokens = await auth_service.issue_tokens(user)
     return SignUpResponse(
         info=UserInfoResponse.model_validate(user),
-        access_token=access_token,
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
     )
