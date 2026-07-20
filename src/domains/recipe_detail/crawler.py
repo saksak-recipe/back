@@ -1,7 +1,10 @@
+import asyncio
 import json
 
 from bs4 import BeautifulSoup
+import httpx
 
+from core.exception.exceptions import ExternalServiceException
 from domains.recipe_detail.matcher import SearchCandidate
 from domains.recipe_detail.schemas import (
     RecipeDetailResponse,
@@ -13,6 +16,47 @@ BASE_URL = "https://www.10000recipe.com"
 USER_AGENT = (
     "saksak-recipe-bot/1.0 (+https://github.com/local; personal non-commercial use)"
 )
+
+
+class RecipeCrawler:
+    _semaphore = asyncio.Semaphore(3)
+
+    async def search(self, query: str) -> list[SearchCandidate]:
+        html = await self._get(
+            f"{BASE_URL}/recipe/list.html",
+            params={"q": query.strip()},
+        )
+        try:
+            return parse_search_html(html)
+        except Exception as exc:
+            raise ExternalServiceException("레시피 검색 결과를 파싱하지 못했어요") from exc
+
+    async def fetch_detail(self, recipe_id: str) -> RecipeDetailResponse:
+        html = await self._get(f"{BASE_URL}/recipe/{recipe_id}")
+        try:
+            return parse_detail_html(html, recipe_id)
+        except Exception as exc:
+            raise ExternalServiceException("레시피 상세 정보를 파싱하지 못했어요") from exc
+
+    async def _get(
+        self,
+        url: str,
+        params: dict[str, str] | None = None,
+    ) -> str:
+        try:
+            async with self._semaphore:
+                async with httpx.AsyncClient(
+                    timeout=10.0,
+                    headers={"User-Agent": USER_AGENT},
+                ) as client:
+                    response = await client.get(url, params=params)
+            if response.status_code != httpx.codes.OK:
+                raise ExternalServiceException("레시피 사이트 요청에 실패했어요")
+            return response.text
+        except ExternalServiceException:
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ExternalServiceException("레시피 사이트 요청 중 오류가 발생했어요") from exc
 
 
 def parse_search_html(html: str) -> list[SearchCandidate]:
