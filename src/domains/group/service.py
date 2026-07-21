@@ -34,6 +34,8 @@ from domains.group.schemas import (
 )
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.model import Ingredient
+from domains.notification.repository import NotificationRepository
+from domains.notification.service import NotificationService
 from domains.ingredient.schemas import (
     AddIngredientRequest,
     AddIngredientResponse,
@@ -68,6 +70,7 @@ class GroupService:
         user_repo: UserRepository,
         ingredient_repo: IngredientRepository,
         shopping_repo: ShoppingRepository,
+        notification_repo: NotificationRepository,
         list_cache: AiRecipeCache | None = None,
     ) -> None:
         self.user = user
@@ -75,6 +78,7 @@ class GroupService:
         self.user_repo = user_repo
         self.ingredient_repo = ingredient_repo
         self.shopping_repo = shopping_repo
+        self.notification_repo = notification_repo
         self.list_cache = list_cache
 
     def _schedule_ai_recipe_list_invalidation(self, group_id: UUID) -> None:
@@ -195,6 +199,7 @@ class GroupService:
             )
 
         invite = await self.group_repo.find_pending_invite(group.id, invitee.id)
+        created_new = False
         if invite is None:
             invite = await self.group_repo.add_invite(
                 GroupInvite(
@@ -202,6 +207,21 @@ class GroupService:
                     inviter_id=self.user.id,
                     invitee_id=invitee.id,
                 )
+            )
+            created_new = True
+        if created_new:
+            notif_service = NotificationService(
+                user=self.user,
+                notification_repo=self.notification_repo,
+                ingredient_repo=self.ingredient_repo,
+                group_repo=self.group_repo,
+            )
+            await notif_service.create_group_invite_notification(
+                invitee_id=invitee.id,
+                invite_id=invite.id,
+                group_id=group.id,
+                group_name=group.name,
+                inviter_nickname=self.user.nickname,
             )
         return await self._to_invite_response(invite)
 

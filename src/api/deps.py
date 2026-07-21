@@ -29,6 +29,7 @@ from domains.saved_recipe.repository import SavedRecipeRepository
 from domains.saved_recipe.service import SavedRecipeService
 from domains.group.repository import GroupRepository
 from domains.group.service import GroupService
+from domains.notification.repository import NotificationRepository
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.service import ShoppingService
 
@@ -209,5 +210,6 @@ def get_group_service(
         user_repo=UserRepository(session),
         ingredient_repo=IngredientRepository(session),
         shopping_repo=ShoppingRepository(session),
+        notification_repo=NotificationRepository(session),
         list_cache=AiRecipeCache(get_redis()),
     )
