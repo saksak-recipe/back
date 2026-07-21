@@ -11,6 +11,7 @@ from domains.auth.signup_pending_store import SignupPendingStore
 from domains.auth.verification_store import VerificationCodeStore
 from domains.ai_recipe.agent import AiRecipeAgent
 from domains.ai_recipe.cache import AiRecipeCache
+from domains.ai_recipe.quota import AiQuotaStore
 from domains.ai_recipe.service import AiRecipeService
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.scope import IngredientScopeLoader
@@ -153,6 +154,7 @@ def get_ai_recipe_service(
         scope_loader=scope_loader,
         agent=AiRecipeAgent(),
         cache=cache,
+        quota=AiQuotaStore(get_redis()),
     )
 
 

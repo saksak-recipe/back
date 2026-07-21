@@ -10,6 +10,7 @@ from loguru import logger
 from core.exception.exceptions import ExternalServiceException, NotFoundException
 from domains.ai_recipe.agent import AgentFailedError, AiRecipeAgent
 from domains.ai_recipe.cache import AiRecipeCache
+from domains.ai_recipe.quota import AiQuotaStore
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,
@@ -39,11 +40,13 @@ class AiRecipeService:
         scope_loader: IngredientScopeLoader,
         agent: AiRecipeAgent,
         cache: AiRecipeCache,
+        quota: AiQuotaStore,
     ) -> None:
         self.user = user
         self.scope_loader = scope_loader
         self.agent = agent
         self.cache = cache
+        self.quota = quota
 
     async def recommend(
         self,
@@ -67,6 +70,7 @@ class AiRecipeService:
                     recipes=cached.recipes,
                 )
 
+        await self.quota.consume(scoped.scope, scoped.cache_owner_id)
         candidates = await self._generate_list(names, urgent_names(ingredients))
 
         recipes: list[AiRecipeRecommendation] = []
@@ -143,6 +147,7 @@ class AiRecipeService:
 
         scoped = await self.scope_loader.load(scope)
         names = [item.ingredient_name for item in scoped.ingredients]
+        await self.quota.consume(scoped.scope, scoped.cache_owner_id)
         try:
             detail = await asyncio.wait_for(
                 asyncio.to_thread(self.agent.run_detail, names, record),

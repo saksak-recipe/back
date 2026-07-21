@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 import openai
 import pytest
 
-from core.exception.exceptions import ExternalServiceException, NotFoundException
+from core.exception.codes import ErrorCode
+from core.exception.exceptions import (
+    ExternalServiceException,
+    NotFoundException,
+    TooManyRequestsException,
+)
 from domains.ai_recipe.agent import AgentFailedError
 from domains.ai_recipe import service as service_module
 from domains.ai_recipe.schemas import (
@@ -27,6 +32,12 @@ def user():
     mocked_user = MagicMock()
     mocked_user.id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     return mocked_user
+
+
+def _quota():
+    q = AsyncMock()
+    q.consume.return_value = 1
+    return q
 
 
 def _scope_loader(ingredients, *, scope=RecipeScope.personal, cache_owner_id=None):
@@ -64,7 +75,7 @@ async def test_recommend_returns_matching_list_cache_without_agent(user):
     )
     agent = MagicMock()
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     result = await service.recommend()
@@ -90,7 +101,7 @@ async def test_recommend_refresh_bypasses_matching_list_cache(user):
         for i in range(5)
     ]
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     result = await service.recommend(refresh=True)
@@ -118,7 +129,7 @@ async def test_recommend_regenerates_when_ingredients_hash_changes(user):
         for i in range(5)
     ]
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     await service.recommend()
@@ -132,8 +143,9 @@ async def test_recommend_empty_skips_agent(user):
     scope_loader = _scope_loader([], cache_owner_id=user.id)
     agent = MagicMock()
     cache = AsyncMock()
+    quota = _quota()
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
     )
 
     result = await service.recommend()
@@ -142,6 +154,7 @@ async def test_recommend_empty_skips_agent(user):
     assert result.recipes == []
     agent.run_list.assert_not_called()
     cache.set.assert_not_awaited()
+    quota.consume.assert_not_awaited()
 
 
 async def test_recommend_caches_five(user):
@@ -161,7 +174,7 @@ async def test_recommend_caches_five(user):
     ]
     cache = AsyncMock()
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     result = await service.recommend()
@@ -188,7 +201,7 @@ async def test_recommend_passes_urgent_names_and_retries_once(user):
     agent = MagicMock()
     agent.run_list.side_effect = [TimeoutError(), candidates]
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=AsyncMock()
+        user=user, scope_loader=scope_loader, agent=agent, cache=AsyncMock(), quota=_quota()
     )
 
     result = await service.recommend()
@@ -214,7 +227,7 @@ async def test_recommend_maps_agent_failure(user, agent_error):
     agent.run_list.side_effect = agent_error
     cache = AsyncMock()
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     with pytest.raises(
@@ -233,7 +246,7 @@ async def test_recommend_maps_agent_timeout(user, monkeypatch):
     agent = MagicMock()
     agent.run_list.side_effect = lambda _names, _urgent: time.sleep(0.05)
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=AsyncMock()
+        user=user, scope_loader=scope_loader, agent=agent, cache=AsyncMock(), quota=_quota()
     )
 
     with pytest.raises(
@@ -260,7 +273,7 @@ async def test_recommend_group_scope_uses_group_cache_owner(user):
         for i in range(5)
     ]
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     await service.recommend(scope=RecipeScope.group)
@@ -296,7 +309,7 @@ async def test_get_detail_group_scope_loads_group_ingredients(user):
         "tips": [],
     }
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     await service.get_detail("rid", scope=RecipeScope.group)
@@ -312,6 +325,7 @@ async def test_detail_not_found(user):
         scope_loader=AsyncMock(),
         agent=MagicMock(),
         cache=cache,
+        quota=_quota(),
     )
 
     with pytest.raises(NotFoundException, match="AI 레시피를 찾지 못했습니다."):
@@ -334,7 +348,7 @@ async def test_detail_cache_hit(user):
     )
     agent = MagicMock()
     service = AiRecipeService(
-        user=user, scope_loader=AsyncMock(), agent=agent, cache=cache
+        user=user, scope_loader=AsyncMock(), agent=agent, cache=cache, quota=_quota()
     )
 
     result = await service.get_detail("rid")
@@ -366,7 +380,7 @@ async def test_detail_expands_when_missing(user):
     item.ingredient_name = "계란"
     scope_loader = _scope_loader([item], cache_owner_id=user.id)
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     result = await service.get_detail("rid")
@@ -388,7 +402,7 @@ async def test_detail_maps_agent_failure(user):
     agent.run_detail.side_effect = AgentFailedError("fail")
     scope_loader = _scope_loader([], cache_owner_id=user.id)
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     with pytest.raises(
@@ -409,10 +423,161 @@ async def test_detail_maps_agent_timeout(user, monkeypatch):
     agent.run_detail.side_effect = lambda _names, _record: time.sleep(0.05)
     scope_loader = _scope_loader([], cache_owner_id=user.id)
     service = AiRecipeService(
-        user=user, scope_loader=scope_loader, agent=agent, cache=cache
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
     )
 
     with pytest.raises(
         ExternalServiceException, match="AI 레시피 상세 생성에 실패했습니다."
     ):
         await service.get_detail("rid")
+
+
+async def test_recommend_cache_hit_does_not_consume_quota(user):
+    item = MagicMock(ingredient_name="계란")
+    scope_loader = _scope_loader([item], cache_owner_id=user.id)
+    cached_recipe = AiRecipeRecommendation(
+        recipe_id="rid",
+        recipe_name="계란찜",
+        owned_ingredients=["계란"],
+    )
+    cache = AsyncMock()
+    cache.get_list.return_value = AiRecipeListCacheRecord(
+        ingredients_hash=ingredients_hash(["계란"]),
+        ingredients_used=["계란"],
+        recipes=[cached_recipe],
+    )
+    agent = MagicMock()
+    quota = _quota()
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
+    )
+
+    await service.recommend()
+
+    quota.consume.assert_not_awaited()
+    agent.run_list.assert_not_called()
+
+
+async def test_recommend_llm_path_consumes_quota(user):
+    item = MagicMock(ingredient_name="계란", expiration_date=None)
+    scope_loader = _scope_loader([item], cache_owner_id=user.id)
+    cache = AsyncMock()
+    cache.get_list.return_value = AiRecipeListCacheRecord(
+        ingredients_hash=ingredients_hash(["계란"]),
+        ingredients_used=["계란"],
+        recipes=[],
+    )
+    agent = MagicMock()
+    agent.run_list.return_value = [
+        AiRecipeCandidate(recipe_name=f"요리{i}", recipe_ingredients=["계란"])
+        for i in range(5)
+    ]
+    quota = _quota()
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
+    )
+
+    await service.recommend(refresh=True)
+
+    quota.consume.assert_awaited_once_with(RecipeScope.personal, user.id)
+    agent.run_list.assert_called_once()
+
+
+async def test_recommend_quota_exceeded_skips_agent(user):
+    item = MagicMock(ingredient_name="계란", expiration_date=None)
+    scope_loader = _scope_loader([item], cache_owner_id=user.id)
+    quota = _quota()
+    quota.consume.side_effect = TooManyRequestsException()
+    agent = MagicMock()
+    cache = AsyncMock()
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
+    )
+
+    with pytest.raises(TooManyRequestsException) as exc_info:
+        await service.recommend(refresh=True)
+
+    assert exc_info.value.code == ErrorCode.AI_QUOTA_EXCEEDED
+    agent.run_list.assert_not_called()
+
+
+async def test_get_detail_cached_does_not_consume(user):
+    cache = AsyncMock()
+    cache.get.return_value = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란"],
+        owned_ingredients=["계란"],
+        missing_ingredients=[],
+        recipe_difficulty="초급",
+        time="10분",
+        ingredients=[AiRecipeIngredient(name="계란", amount="2개")],
+        steps=[AiRecipeStep(order=1, description="볶는다")],
+        tips=["약불"],
+    )
+    agent = MagicMock()
+    quota = _quota()
+    service = AiRecipeService(
+        user=user, scope_loader=AsyncMock(), agent=agent, cache=cache, quota=quota
+    )
+
+    await service.get_detail("rid")
+
+    quota.consume.assert_not_awaited()
+    agent.run_detail.assert_not_called()
+
+
+async def test_get_detail_llm_consumes_quota(user):
+    cache = AsyncMock()
+    summary = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란", "밥"],
+        owned_ingredients=["계란"],
+        missing_ingredients=["밥"],
+        recipe_difficulty="초급",
+        time="10분",
+    )
+    cache.get.return_value = summary
+    agent = MagicMock()
+    agent.run_detail.return_value = {
+        "ingredients": [AiRecipeIngredient(name="계란", amount="2개")],
+        "steps": [AiRecipeStep(order=1, description="볶는다")],
+        "tips": ["약불"],
+    }
+    item = MagicMock()
+    item.ingredient_name = "계란"
+    scope_loader = _scope_loader([item], cache_owner_id=user.id)
+    quota = _quota()
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
+    )
+
+    await service.get_detail("rid")
+
+    quota.consume.assert_awaited_once_with(RecipeScope.personal, user.id)
+    agent.run_detail.assert_called_once()
+
+
+async def test_recommend_group_consumes_group_owner(user):
+    group_id = uuid.UUID("22222222-2222-2222-2222-222222222222")
+    scope_loader = _scope_loader(
+        [MagicMock(ingredient_name="계란", expiration_date=None)],
+        scope=RecipeScope.group,
+        cache_owner_id=group_id,
+    )
+    cache = AsyncMock()
+    cache.get_list.return_value = None
+    agent = MagicMock()
+    agent.run_list.return_value = [
+        AiRecipeCandidate(recipe_name=f"요리{i}", recipe_ingredients=["계란"])
+        for i in range(5)
+    ]
+    quota = _quota()
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
+    )
+
+    await service.recommend(refresh=True, scope=RecipeScope.group)
+
+    quota.consume.assert_awaited_once_with(RecipeScope.group, group_id)

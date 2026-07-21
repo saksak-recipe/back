@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: SecretStr
     OPENAI_API_KEY: SecretStr
     AI_RECIPE_MODEL: str = "gpt-5-nano"
+    AI_QUOTA_DAILY_LIMIT: int = 15
 
     REDIS_URL: str = "redis://localhost:6379/0"
 

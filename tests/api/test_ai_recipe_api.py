@@ -4,7 +4,11 @@ from httpx import AsyncClient
 
 from api.deps import get_ai_recipe_service
 from core.exception.codes import ErrorCode
-from core.exception.exceptions import ExternalServiceException, NotFoundException
+from core.exception.exceptions import (
+    ExternalServiceException,
+    NotFoundException,
+    TooManyRequestsException,
+)
 from domains.ai_recipe.schemas import (
     AiRecipeDetailResponse,
     AiRecipeRecommendation,
@@ -106,6 +110,23 @@ async def test_ai_recommendations_passes_refresh(
         mock.recommend.assert_awaited_once_with(
             refresh=True, scope=RecipeScope.personal
         )
+    finally:
+        app.dependency_overrides.pop(get_ai_recipe_service, None)
+
+
+async def test_ai_recommendations_quota_exceeded(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    mock = MagicMock()
+    mock.recommend = AsyncMock(side_effect=TooManyRequestsException())
+    app.dependency_overrides[get_ai_recipe_service] = lambda: mock
+    try:
+        response = await client.get(
+            "/api/v1/recipes/ai/recommendations",
+            headers=auth_headers,
+        )
+        assert response.status_code == 429
+        assert response.json()["code"] == ErrorCode.AI_QUOTA_EXCEEDED
     finally:
         app.dependency_overrides.pop(get_ai_recipe_service, None)
 
