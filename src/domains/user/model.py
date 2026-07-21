@@ -21,6 +21,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
     ingredients: Mapped[list["Ingredient"]] = relationship(
         "Ingredient",
@@ -38,4 +41,5 @@ class User(Base):
         Index("ix_user_nickname_lower", func.lower(nickname), unique=True),
         # 생성일 기준 정렬을 위한 일반 인덱스 설정
         Index("ix_user_created_at", created_at.desc()),
+        Index("ix_users_deleted_at", deleted_at),
     )
