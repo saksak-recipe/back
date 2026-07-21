@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -93,6 +94,52 @@ async def test_login_rejects_kakao_only_user(
         )
 
 
+async def test_login_restores_soft_deleted_within_grace(
+    auth_service: AuthService, user_repo: AsyncMock
+):
+    user = User(
+        id=uuid6.uuid7(),
+        email="a@example.com",
+        password=security.hash_password("password123"),
+        nickname="a",
+    )
+    user.deleted_at = datetime.now(timezone.utc) - timedelta(days=3)
+    user_repo.get_user_by_email.return_value = user
+    user_repo.save.side_effect = lambda saved_user: saved_user
+
+    response = await auth_service.login(
+        LogInRequest(email="a@example.com", password="password123")
+    )
+
+    assert user.deleted_at is None
+    assert response.access_token
+    user_repo.save.assert_awaited_once_with(user)
+
+
+async def test_login_rejects_soft_deleted_after_grace(
+    auth_service: AuthService, user_repo: AsyncMock
+):
+    user = User(
+        id=uuid6.uuid7(),
+        email="a@example.com",
+        password=security.hash_password("password123"),
+        nickname="a",
+    )
+    user.deleted_at = datetime.now(timezone.utc) - timedelta(days=8)
+    user_repo.get_user_by_email.return_value = user
+
+    with pytest.raises(
+        UnAuthorizedException,
+        match="이메일 또는 비밀번호가 올바르지 않습니다",
+    ) as exc_info:
+        await auth_service.login(
+            LogInRequest(email="a@example.com", password="password123")
+        )
+
+    assert "탈퇴" not in exc_info.value.detail
+    user_repo.save.assert_not_awaited()
+
+
 async def test_login_with_kakao_returns_tokens_for_existing_user(
     auth_service: AuthService,
     user_repo: AsyncMock,
@@ -122,6 +169,33 @@ async def test_login_with_kakao_returns_tokens_for_existing_user(
     assert response.access_token
     assert response.refresh_token
     refresh_store.save.assert_awaited_once()
+
+
+async def test_kakao_login_restores_within_grace(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    user = User(
+        id=uuid6.uuid7(),
+        email="k@example.com",
+        password=None,
+        kakao_id="99",
+        nickname="k",
+    )
+    user.deleted_at = datetime.now(timezone.utc) - timedelta(days=1)
+    user_repo.get_user_by_kakao_id.return_value = user
+    user_repo.save.side_effect = lambda saved_user: saved_user
+    monkeypatch.setattr(
+        "domains.auth.kakao_client.fetch_kakao_user_id",
+        AsyncMock(return_value="99"),
+    )
+
+    response = await auth_service.login_with_kakao("kakao-token")
+
+    assert user.deleted_at is None
+    assert response.access_token
+    user_repo.save.assert_awaited_once_with(user)
 
 
 async def test_login_with_kakao_returns_needs_profile_for_new_user(
@@ -233,6 +307,25 @@ async def test_refresh_rejects_unknown_token(
         await auth_service.refresh("missing")
 
 
+async def test_refresh_rejects_soft_deleted(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    refresh_store: AsyncMock,
+    existing_user: User,
+):
+    existing_user.deleted_at = datetime.now(timezone.utc)
+    refresh_store.pop_user_id.return_value = existing_user.id
+    user_repo.get_user_by_id.return_value = existing_user
+
+    with pytest.raises(
+        InvalidTokenException, match="유효하지 않은 리프레시 토큰입니다"
+    ):
+        await auth_service.refresh("withdrawn-refresh")
+
+    user_repo.save.assert_not_awaited()
+    refresh_store.save.assert_not_awaited()
+
+
 async def test_logout_deletes_refresh(
     auth_service: AuthService, refresh_store: AsyncMock
 ):
@@ -259,3 +352,16 @@ async def test_get_user_by_token_raises_when_user_missing(
 
     with pytest.raises(UnAuthorizedException):
         await auth_service.get_user_by_token(token)
+
+
+async def test_get_user_by_token_rejects_soft_deleted(
+    auth_service: AuthService, user_repo: AsyncMock, existing_user: User
+):
+    existing_user.deleted_at = datetime.now(timezone.utc)
+    token = security.create_jwt(existing_user.id)
+    user_repo.get_user_by_id.return_value = existing_user
+
+    with pytest.raises(UnAuthorizedException, match="사용자를 찾을 수 없습니다"):
+        await auth_service.get_user_by_token(token)
+
+    user_repo.save.assert_not_awaited()

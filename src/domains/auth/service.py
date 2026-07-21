@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from core import security
+from core.config import settings
 from core.exception.codes import ErrorCode
 from core.exception.exceptions import (
     ConflictException,
@@ -67,6 +69,7 @@ class AuthService:
             raise UnAuthorizedException(
                 detail="이메일 또는 비밀번호가 올바르지 않습니다."
             )
+        user = await self._restore_if_within_grace(user)
         tokens = await self.issue_tokens(user)
         return self._to_auth_response(user, tokens)
 
@@ -76,6 +79,7 @@ class AuthService:
         kakao_id = await kakao_client.fetch_kakao_user_id(access_token)
         user = await self.user_repo.get_user_by_kakao_id(kakao_id)
         if user:
+            user = await self._restore_if_within_grace(user)
             tokens = await self.issue_tokens(user)
             return self._to_kakao_auth_response(user, tokens)
         signup_token = security.create_kakao_signup_token(kakao_id)
@@ -119,6 +123,8 @@ class AuthService:
         user = await self.user_repo.get_user_by_id(user_id)
         if not user:
             raise InvalidTokenException(detail="유효하지 않은 리프레시 토큰입니다.")
+        if user.deleted_at is not None:
+            raise InvalidTokenException(detail="유효하지 않은 리프레시 토큰입니다.")
         tokens = await self.issue_tokens(user)
         return self._to_auth_response(user, tokens)
 
@@ -130,4 +136,25 @@ class AuthService:
         user = await self.user_repo.get_user_by_id(user_id)
         if not user:
             raise UnAuthorizedException(detail="사용자를 찾을 수 없습니다.")
+        await self._reject_if_withdrawn(user)
         return user
+
+    def _is_within_grace(self, deleted_at: datetime, now: datetime) -> bool:
+        if deleted_at.tzinfo is None:
+            deleted_at = deleted_at.replace(tzinfo=timezone.utc)
+        return now - deleted_at <= timedelta(days=settings.WITHDRAWAL_GRACE_DAYS)
+
+    async def _reject_if_withdrawn(self, user: User) -> None:
+        if user.deleted_at is not None:
+            raise UnAuthorizedException(detail="사용자를 찾을 수 없습니다.")
+
+    async def _restore_if_within_grace(self, user: User) -> User:
+        if user.deleted_at is None:
+            return user
+        now = datetime.now(timezone.utc)
+        if self._is_within_grace(user.deleted_at, now):
+            user.deleted_at = None
+            return await self.user_repo.save(user)
+        raise UnAuthorizedException(
+            detail="이메일 또는 비밀번호가 올바르지 않습니다."
+        )
