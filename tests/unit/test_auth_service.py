@@ -5,8 +5,15 @@ import pytest
 import uuid6
 
 from core import security
-from core.exception.exceptions import InvalidTokenException, UnAuthorizedException
+from core.exception.codes import ErrorCode
+from core.exception.exceptions import (
+    BadRequestException,
+    InvalidTokenException,
+    UnAuthorizedException,
+)
+from domains.auth.schemas import EmailVerifyRequest, KakaoCompleteRequest
 from domains.auth.service import AuthService
+from domains.auth.verification_store import PURPOSE_SIGNUP
 from domains.user.model import User
 from domains.user.schemas import LogInRequest
 
@@ -22,8 +29,28 @@ def refresh_store() -> AsyncMock:
 
 
 @pytest.fixture
-def auth_service(user_repo: AsyncMock, refresh_store: AsyncMock) -> AuthService:
-    return AuthService(user_repo=user_repo, refresh_store=refresh_store)
+def verification_store() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def email_service() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def auth_service(
+    user_repo: AsyncMock,
+    refresh_store: AsyncMock,
+    verification_store: AsyncMock,
+    email_service: AsyncMock,
+) -> AuthService:
+    return AuthService(
+        user_repo=user_repo,
+        refresh_store=refresh_store,
+        verification_store=verification_store,
+        email_service=email_service,
+    )
 
 
 @pytest.fixture
@@ -33,6 +60,7 @@ def existing_user() -> User:
         email="test@example.com",
         password=security.hash_password("password123"),
         nickname="testuser",
+        is_email_verified=True,
     )
 
 
@@ -94,6 +122,58 @@ async def test_login_rejects_kakao_only_user(
         )
 
 
+async def test_login_rejects_unverified_email_user(
+    auth_service: AuthService, user_repo: AsyncMock
+):
+    unverified = User(
+        id=uuid6.uuid7(),
+        email="unverified@example.com",
+        password=security.hash_password("password123"),
+        nickname="unverified",
+        is_email_verified=False,
+    )
+    user_repo.get_user_by_email.return_value = unverified
+
+    with pytest.raises(UnAuthorizedException) as exc_info:
+        await auth_service.login(
+            LogInRequest(email="unverified@example.com", password="password123")
+        )
+
+    assert exc_info.value.code == ErrorCode.EMAIL_NOT_VERIFIED
+
+
+async def test_verify_email_issues_tokens(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    refresh_store: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user = User(
+        id=uuid6.uuid7(),
+        email="verify@example.com",
+        password=security.hash_password("password123"),
+        nickname="verifyme",
+        is_email_verified=False,
+    )
+    user_repo.get_user_by_email.return_value = user
+    user_repo.save.side_effect = lambda saved_user: saved_user
+    verification_store.verify.return_value = None
+
+    response = await auth_service.verify_email(
+        EmailVerifyRequest(email="verify@example.com", code="123456")
+    )
+
+    assert user.is_email_verified is True
+    assert response.access_token
+    assert response.refresh_token
+    assert response.info.email == "verify@example.com"
+    verification_store.verify.assert_awaited_once_with(
+        PURPOSE_SIGNUP, "verify@example.com", "123456"
+    )
+    user_repo.save.assert_awaited_once_with(user)
+    refresh_store.save.assert_awaited_once()
+
+
 async def test_login_restores_soft_deleted_within_grace(
     auth_service: AuthService, user_repo: AsyncMock
 ):
@@ -102,6 +182,7 @@ async def test_login_restores_soft_deleted_within_grace(
         email="a@example.com",
         password=security.hash_password("password123"),
         nickname="a",
+        is_email_verified=True,
     )
     user.deleted_at = datetime.now(timezone.utc) - timedelta(days=3)
     user_repo.get_user_by_email.return_value = user
@@ -124,6 +205,7 @@ async def test_login_rejects_soft_deleted_after_grace(
         email="a@example.com",
         password=security.hash_password("password123"),
         nickname="a",
+        is_email_verified=True,
     )
     user.deleted_at = datetime.now(timezone.utc) - timedelta(days=8)
     user_repo.get_user_by_email.return_value = user
@@ -234,11 +316,11 @@ async def test_complete_kakao_signup_creates_user(
         password=None,
         kakao_id="999888777",
         nickname="newbie",
+        is_email_verified=True,
     )
     user_repo.add_user.return_value = created
 
     signup_token = security.create_kakao_signup_token("999888777")
-    from domains.auth.schemas import KakaoCompleteRequest
 
     response = await auth_service.complete_kakao_signup(
         KakaoCompleteRequest(
@@ -251,15 +333,41 @@ async def test_complete_kakao_signup_creates_user(
     assert response.status == "authenticated"
     assert response.info.nickname == "newbie"
     user_repo.add_user.assert_awaited_once()
+    added_user = user_repo.add_user.await_args.args[0]
+    assert added_user.is_email_verified is True
     refresh_store.save.assert_awaited_once()
+
+
+async def test_complete_kakao_sets_verified_true(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+):
+    user_repo.get_user_by_kakao_id.return_value = None
+    user_repo.get_user_by_email.return_value = None
+    user_repo.get_user_by_nickname.return_value = None
+
+    def _add_user(user: User) -> User:
+        user.id = uuid6.uuid7()
+        return user
+
+    user_repo.add_user.side_effect = _add_user
+
+    await auth_service.complete_kakao_signup(
+        KakaoCompleteRequest(
+            signup_token=security.create_kakao_signup_token("111222333"),
+            nickname="kakaoverified",
+            email="verified@example.com",
+        )
+    )
+
+    added_user = user_repo.add_user.await_args.args[0]
+    assert added_user.is_email_verified is True
 
 
 async def test_complete_kakao_signup_restores_existing_user_within_grace(
     auth_service: AuthService,
     user_repo: AsyncMock,
 ):
-    from domains.auth.schemas import KakaoCompleteRequest
-
     user = User(
         id=uuid6.uuid7(),
         email="k@example.com",
@@ -288,8 +396,6 @@ async def test_complete_kakao_signup_rejects_expired_existing_user_generically(
     auth_service: AuthService,
     user_repo: AsyncMock,
 ):
-    from domains.auth.schemas import KakaoCompleteRequest
-
     user = User(
         id=uuid6.uuid7(),
         email="k@example.com",
@@ -316,7 +422,6 @@ async def test_complete_kakao_signup_rejects_email_conflict(
     auth_service: AuthService, user_repo: AsyncMock
 ):
     from core.exception.exceptions import ConflictException
-    from domains.auth.schemas import KakaoCompleteRequest
 
     user_repo.get_user_by_kakao_id.return_value = None
     user_repo.get_user_by_email.return_value = User(

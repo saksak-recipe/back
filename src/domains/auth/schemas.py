@@ -5,6 +5,15 @@ from pydantic import BaseModel, EmailStr, Field
 from domains.user.schemas import UserInfoResponse
 
 
+class EmailVerifyRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class EmailResendRequest(BaseModel):
+    email: EmailStr
+
+
 class KakaoLoginRequest(BaseModel):
     access_token: str = Field(..., description="카카오 액세스 토큰")
 

@@ -6,17 +6,23 @@ from core import security
 from core.config import settings
 from core.exception.codes import ErrorCode
 from core.exception.exceptions import (
+    BadRequestException,
     ConflictException,
     InvalidTokenException,
     UnAuthorizedException,
+    UserNotFoundException,
 )
 from domains.auth import kakao_client
+from domains.auth.email_service import EmailService
 from domains.auth.refresh_store import RefreshTokenStore
 from domains.auth.schemas import (
+    EmailResendRequest,
+    EmailVerifyRequest,
     KakaoAuthResponse,
     KakaoCompleteRequest,
     KakaoNeedsProfileResponse,
 )
+from domains.auth.verification_store import PURPOSE_SIGNUP, VerificationCodeStore
 from domains.user.model import User
 from domains.user.repository import UserRepository
 from domains.user.schemas import LogInRequest, LogInResponse, UserInfoResponse
@@ -30,10 +36,16 @@ class TokenPair:
 
 class AuthService:
     def __init__(
-        self, user_repo: UserRepository, refresh_store: RefreshTokenStore
+        self,
+        user_repo: UserRepository,
+        refresh_store: RefreshTokenStore,
+        verification_store: VerificationCodeStore,
+        email_service: EmailService,
     ) -> None:
         self.user_repo = user_repo
         self.refresh_store = refresh_store
+        self.verification_store = verification_store
+        self.email_service = email_service
 
     async def issue_tokens(self, user: User) -> TokenPair:
         access_token = security.create_jwt(user.id)
@@ -57,6 +69,44 @@ class AuthService:
             refresh_token=tokens.refresh_token,
         )
 
+    async def send_signup_code(self, email: str) -> None:
+        code = await self.verification_store.issue(PURPOSE_SIGNUP, email)
+        await self.email_service.send_verification_code(
+            email, code, PURPOSE_SIGNUP
+        )
+
+    async def verify_email(self, request: EmailVerifyRequest) -> LogInResponse:
+        email = str(request.email)
+        user = await self.user_repo.get_user_by_email(email)
+        if not user:
+            raise UserNotFoundException()
+        if user.is_email_verified:
+            raise BadRequestException(
+                code=ErrorCode.EMAIL_ALREADY_VERIFIED,
+                detail="이미 인증된 이메일입니다.",
+            )
+        await self.verification_store.verify(PURPOSE_SIGNUP, email, request.code)
+        user.is_email_verified = True
+        user = await self.user_repo.save(user)
+        tokens = await self.issue_tokens(user)
+        return self._to_auth_response(user, tokens)
+
+    async def resend_verification(self, request: EmailResendRequest) -> dict:
+        email = str(request.email)
+        user = await self.user_repo.get_user_by_email(email)
+        if not user:
+            raise UserNotFoundException()
+        if user.is_email_verified:
+            raise BadRequestException(
+                code=ErrorCode.EMAIL_ALREADY_VERIFIED,
+                detail="이미 인증된 이메일입니다.",
+            )
+        code = await self.verification_store.issue(PURPOSE_SIGNUP, email)
+        await self.email_service.send_verification_code(
+            email, code, PURPOSE_SIGNUP
+        )
+        return {"ok": True}
+
     async def login(self, request: LogInRequest) -> LogInResponse:
         user = await self.user_repo.get_user_by_email(str(request.email))
         if not user:
@@ -68,6 +118,11 @@ class AuthService:
         if not security.verify_password(request.password, user.password):
             raise UnAuthorizedException(
                 detail="이메일 또는 비밀번호가 올바르지 않습니다."
+            )
+        if not user.is_email_verified:
+            raise UnAuthorizedException(
+                code=ErrorCode.EMAIL_NOT_VERIFIED,
+                detail="이메일 인증이 필요합니다.",
             )
         user = await self._restore_if_within_grace(user)
         tokens = await self.issue_tokens(user)
@@ -112,6 +167,7 @@ class AuthService:
             password=None,
             kakao_id=kakao_id,
             nickname=request.nickname,
+            is_email_verified=True,
         )
         user = await self.user_repo.add_user(user)
         tokens = await self.issue_tokens(user)
