@@ -686,13 +686,12 @@ async def test_patch_me_rejects_email_field(client, auth_headers):
     r = await client.patch(
         "/api/v1/users/me",
         headers=auth_headers,
-        json={"email": "other@example.com", "nickname": "x"},
+        json={"email": "other@example.com", "nickname": "newnick2"},
     )
-    # extra=ignore면 200 + 이메일 불변, 또는 422. 스키마에 email 없으므로 ignore → 이메일 유지
-    if r.status_code == 200:
-        assert r.json()["email"] != "other@example.com" or True
-    # 더 엄격: email 키가 응답에서 변경되지 않음을 검증
+    # UpdateMeRequest에 email 없음 → extra ignore 시 200이어도 이메일은 불변
+    assert r.status_code in (200, 422)
     me = await client.get("/api/v1/users/me", headers=auth_headers)
+    assert me.status_code == 200
     assert me.json()["email"] == "test@example.com"
 
 
