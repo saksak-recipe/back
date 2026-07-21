@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import secrets
 from datetime import date, datetime, timezone
 from uuid import UUID
-
-from sqlalchemy import event
-from sqlalchemy.orm import Session
 
 from core.exception.codes import ErrorCode
 from core.exception.exceptions import (
@@ -18,7 +14,6 @@ from core.exception.exceptions import (
     ShoppingItemNotFoundException,
     UserNotFoundException,
 )
-from domains.ai_recipe.cache import AiRecipeCache
 from domains.group.model import Group, GroupInvite, GroupMember, GroupRole, InviteStatus
 from domains.group.repository import GroupRepository
 from domains.group.schemas import (
@@ -42,7 +37,6 @@ from domains.ingredient.schemas import (
     GetIngredientResponse,
     UpdateIngredientRequest,
 )
-from domains.ingredient.scope import RecipeScope
 from domains.ingredient.service import (
     _ensure_expiration_valid,
     _list_sort_key,
@@ -59,8 +53,6 @@ from domains.shopping.schemas import (
 from domains.user.model import User
 from domains.user.repository import UserRepository
 
-_AI_RECIPE_INVALIDATION_PENDING = "group_ai_recipe_invalidation_pending"
-
 
 class GroupService:
     def __init__(
@@ -71,7 +63,6 @@ class GroupService:
         ingredient_repo: IngredientRepository,
         shopping_repo: ShoppingRepository,
         notification_repo: NotificationRepository,
-        list_cache: AiRecipeCache | None = None,
     ) -> None:
         self.user = user
         self.group_repo = group_repo
@@ -79,45 +70,6 @@ class GroupService:
         self.ingredient_repo = ingredient_repo
         self.shopping_repo = shopping_repo
         self.notification_repo = notification_repo
-        self.list_cache = list_cache
-
-    def _schedule_ai_recipe_list_invalidation(self, group_id: UUID) -> None:
-        if self.list_cache is None:
-            return
-
-        sync_session = self.ingredient_repo.session.sync_session
-        if sync_session.info.get(_AI_RECIPE_INVALIDATION_PENDING):
-            return
-
-        loop = asyncio.get_running_loop()
-        list_cache = self.list_cache
-        cancelled = {"value": False}
-
-        def invalidate_after_commit(session: Session) -> None:
-            session.info.pop(_AI_RECIPE_INVALIDATION_PENDING, None)
-            if cancelled["value"]:
-                return
-            loop.create_task(
-                list_cache.invalidate_list(group_id, scope=RecipeScope.group)
-            )
-
-        def cancel_on_rollback(session: Session) -> None:
-            cancelled["value"] = True
-            session.info.pop(_AI_RECIPE_INVALIDATION_PENDING, None)
-
-        event.listen(
-            sync_session,
-            "after_commit",
-            invalidate_after_commit,
-            once=True,
-        )
-        event.listen(
-            sync_session,
-            "after_rollback",
-            cancel_on_rollback,
-            once=True,
-        )
-        sync_session.info[_AI_RECIPE_INVALIDATION_PENDING] = True
 
     async def create(self, request: CreateGroupRequest) -> GroupResponse:
         if await self.group_repo.get_membership(self.user.id) is not None:
@@ -334,7 +286,6 @@ class GroupService:
             for name in request.ingredients
         ]
         saved = await self.ingredient_repo.add_ingredient(ingredients)
-        self._schedule_ai_recipe_list_invalidation(membership.group_id)
 
         today = date.today()
         return [_to_add_response(item, today) for item in saved]
@@ -367,7 +318,6 @@ class GroupService:
         for field, value in updates.items():
             setattr(ingredient, field, value)
         _ensure_expiration_valid(ingredient.purchase_date, ingredient.expiration_date)
-        self._schedule_ai_recipe_list_invalidation(membership.group_id)
         return _to_get_response(ingredient)
 
     async def delete_ingredient(self, ingredient_id: int) -> None:
@@ -377,12 +327,10 @@ class GroupService:
         )
         if not deleted:
             raise IngredientNotFoundException()
-        self._schedule_ai_recipe_list_invalidation(membership.group_id)
 
     async def delete_all_ingredients(self) -> None:
         membership, _ = await self._require_membership()
         await self.ingredient_repo.delete_all_in_group(membership.group_id)
-        self._schedule_ai_recipe_list_invalidation(membership.group_id)
 
     async def list_shopping_items(self) -> list[ShoppingItemResponse]:
         membership, _ = await self._require_membership()
@@ -469,7 +417,6 @@ class GroupService:
         deleted = await self.shopping_repo.delete_in_group(item_id, membership.group_id)
         if not deleted:
             raise ShoppingItemNotFoundException()
-        self._schedule_ai_recipe_list_invalidation(membership.group_id)
         return _to_add_response(saved[0])
 
     async def merge(self, request: MergeRequest) -> MergeResponse:
@@ -548,9 +495,6 @@ class GroupService:
             if request.mode == "move":
                 await self.shopping_repo.delete_item(item.id, self.user.id)
                 deleted_shopping_item_ids.append(item.id)
-
-        if created_ingredients:
-            self._schedule_ai_recipe_list_invalidation(membership.group_id)
 
         return MergeResponse(
             created_ingredients=created_ingredients,

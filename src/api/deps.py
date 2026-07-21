@@ -112,7 +112,6 @@ def get_ingredient_service(
     return IngredientService(
         user=user,
         ingredient_repo=ingredient_repo,
-        list_cache=AiRecipeCache(get_redis()),
     )
 
 
@@ -212,7 +211,6 @@ def get_group_service(
         ingredient_repo=IngredientRepository(session),
         shopping_repo=ShoppingRepository(session),
         notification_repo=NotificationRepository(session),
-        list_cache=AiRecipeCache(get_redis()),
     )
 
 

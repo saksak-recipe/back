@@ -1,7 +1,5 @@
-import asyncio
 import uuid
 from datetime import date
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -26,7 +24,6 @@ from domains.group.service import GroupService
 from domains.ingredient.model import Ingredient
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
-from domains.ingredient.scope import RecipeScope
 from domains.notification.repository import NotificationRepository
 from domains.shopping.model import ShoppingItem
 from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
@@ -35,9 +32,7 @@ from domains.user.model import User
 from domains.user.repository import UserRepository
 
 
-def _service(
-    user: User, db_session, list_cache: AsyncMock | None = None
-) -> GroupService:
+def _service(user: User, db_session) -> GroupService:
     return GroupService(
         user=user,
         group_repo=GroupRepository(db_session),
@@ -45,7 +40,6 @@ def _service(
         ingredient_repo=IngredientRepository(db_session),
         shopping_repo=ShoppingRepository(db_session),
         notification_repo=NotificationRepository(db_session),
-        list_cache=list_cache,
     )
 
 
@@ -582,196 +576,3 @@ async def test_merge_rejects_foreign_personal_item_id(db_session, test_user):
 
     with pytest.raises(NotFoundException):
         await service.merge(MergeRequest(mode="copy", ingredients=[foreign_ingredient.id]))
-
-
-@pytest.mark.asyncio
-async def test_shopping_to_ingredient_invalidates_ai_list_cache(db_session, test_user):
-    list_cache = AsyncMock()
-    service = _service(test_user, db_session, list_cache=list_cache)
-    await service.create(CreateGroupRequest(name="우리집"))
-    membership = await GroupRepository(db_session).get_membership(test_user.id)
-    assert membership is not None
-    shopping_item = (
-        await service.add_shopping_items(AddShoppingItemsRequest(names=["양파"]))
-    )[0]
-    await db_session.commit()
-    await asyncio.sleep(0)
-    list_cache.invalidate_list.reset_mock()
-
-    await service.shopping_to_ingredient(shopping_item.id)
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        membership.group_id, scope=RecipeScope.group
-    )
-
-
-@pytest.mark.asyncio
-async def test_add_group_ingredients_invalidates_ai_list_cache(db_session):
-    owner = await _add_user(db_session, "o@t.com", "owner1")
-    svc = _service(owner, db_session)
-    await svc.create(CreateGroupRequest(name="home"))
-    membership = await GroupRepository(db_session).get_membership(owner.id)
-    assert membership is not None
-
-    list_cache = AsyncMock()
-    svc_with_cache = _service(owner, db_session, list_cache=list_cache)
-    await svc_with_cache.add_ingredients(
-        AddIngredientRequest(ingredients=["계란"], purchase_date=date.today())
-    )
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        membership.group_id, scope=RecipeScope.group
-    )
-
-
-@pytest.mark.asyncio
-async def test_update_group_ingredient_invalidates_ai_list_cache(db_session, test_user):
-    list_cache = AsyncMock()
-    service = _service(test_user, db_session, list_cache=list_cache)
-    await service.create(CreateGroupRequest(name="우리집"))
-    membership = await GroupRepository(db_session).get_membership(test_user.id)
-    assert membership is not None
-    added = await service.add_ingredients(
-        AddIngredientRequest(ingredients=["양파"], purchase_date=date.today())
-    )
-    await db_session.commit()
-    await asyncio.sleep(0)
-    list_cache.invalidate_list.reset_mock()
-
-    await service.update_ingredient(
-        added[0].id, UpdateIngredientRequest(ingredient_name="빨간양파")
-    )
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        membership.group_id, scope=RecipeScope.group
-    )
-
-
-@pytest.mark.asyncio
-async def test_delete_group_ingredient_invalidates_ai_list_cache(db_session, test_user):
-    list_cache = AsyncMock()
-    service = _service(test_user, db_session, list_cache=list_cache)
-    await service.create(CreateGroupRequest(name="우리집"))
-    membership = await GroupRepository(db_session).get_membership(test_user.id)
-    assert membership is not None
-    added = await service.add_ingredients(
-        AddIngredientRequest(ingredients=["양파"], purchase_date=date.today())
-    )
-    await db_session.commit()
-    await asyncio.sleep(0)
-    list_cache.invalidate_list.reset_mock()
-
-    await service.delete_ingredient(added[0].id)
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        membership.group_id, scope=RecipeScope.group
-    )
-
-
-@pytest.mark.asyncio
-async def test_delete_all_group_ingredients_invalidates_ai_list_cache(
-    db_session, test_user
-):
-    list_cache = AsyncMock()
-    service = _service(test_user, db_session, list_cache=list_cache)
-    await service.create(CreateGroupRequest(name="우리집"))
-    membership = await GroupRepository(db_session).get_membership(test_user.id)
-    assert membership is not None
-    await service.add_ingredients(
-        AddIngredientRequest(ingredients=["양파"], purchase_date=date.today())
-    )
-    await db_session.commit()
-    await asyncio.sleep(0)
-    list_cache.invalidate_list.reset_mock()
-
-    await service.delete_all_ingredients()
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        membership.group_id, scope=RecipeScope.group
-    )
-
-
-@pytest.mark.asyncio
-async def test_merge_creating_group_ingredients_invalidates_ai_list_cache(
-    db_session, test_user
-):
-    list_cache = AsyncMock()
-    service = _service(test_user, db_session, list_cache=list_cache)
-    await service.create(CreateGroupRequest(name="우리집"))
-    membership = await GroupRepository(db_session).get_membership(test_user.id)
-    assert membership is not None
-    personal = (
-        await IngredientRepository(db_session).add_ingredient(
-            [
-                Ingredient(
-                    user_id=test_user.id,
-                    ingredient_name="양파",
-                    purchase_date=date.today(),
-                    expiration_date=None,
-                )
-            ]
-        )
-    )[0]
-
-    await service.merge(
-        MergeRequest(mode="copy", ingredients=[personal.id], shopping_items=[])
-    )
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        membership.group_id, scope=RecipeScope.group
-    )
-
-
-@pytest.mark.asyncio
-async def test_rollback_does_not_invalidate_group_ai_list_cache(db_session, test_user):
-    list_cache = AsyncMock()
-    service = _service(test_user, db_session, list_cache=list_cache)
-    await service.create(CreateGroupRequest(name="우리집"))
-    membership = await GroupRepository(db_session).get_membership(test_user.id)
-    assert membership is not None
-    group_id = membership.group_id
-    await db_session.commit()
-    await db_session.refresh(test_user)
-
-    await service.add_ingredients(
-        AddIngredientRequest(ingredients=["양파"], purchase_date=date.today())
-    )
-    await db_session.rollback()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_not_awaited()
-
-    await db_session.refresh(test_user)
-    await service.add_ingredients(
-        AddIngredientRequest(ingredients=["당근"], purchase_date=date.today())
-    )
-    await db_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(
-        group_id, scope=RecipeScope.group
-    )

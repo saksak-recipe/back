@@ -1,4 +1,3 @@
-import asyncio
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
@@ -22,11 +21,6 @@ def ingredient_repo() -> AsyncMock:
 
 
 @pytest.fixture
-def list_cache() -> AsyncMock:
-    return AsyncMock()
-
-
-@pytest.fixture
 def user() -> User:
     return User(
         id=uuid6.uuid7(),
@@ -38,19 +32,17 @@ def user() -> User:
 
 @pytest.fixture
 def ingredient_service(
-    user: User, ingredient_repo: AsyncMock, list_cache: AsyncMock
+    user: User, ingredient_repo: AsyncMock
 ) -> IngredientService:
     return IngredientService(
         user=user,
         ingredient_repo=ingredient_repo,
-        list_cache=list_cache,
     )
 
 
 async def test_add_ingredients_returns_saved_items(
     ingredient_service: IngredientService,
     ingredient_repo: AsyncMock,
-    list_cache: AsyncMock,
     user: User,
 ):
     saved = [
@@ -77,12 +69,6 @@ async def test_add_ingredients_returns_saved_items(
     assert result[0].ingredient_name == "양파"
     assert result[1].ingredient_name == "당근"
     assert result[0].status == "unknown"
-    list_cache.invalidate_list.assert_not_awaited()
-
-    ingredient_repo.session.sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(user.id)
 
 
 async def test_compute_status_boundaries():
@@ -249,7 +235,6 @@ async def test_get_ingredients_sorts_by_status(
 async def test_update_ingredient_partial_fields(
     ingredient_service: IngredientService,
     ingredient_repo: AsyncMock,
-    list_cache: AsyncMock,
     user: User,
 ):
     existing = Ingredient(
@@ -274,12 +259,6 @@ async def test_update_ingredient_partial_fields(
     assert result.expiration_date == expiration
     assert result.status == "soon"
     ingredient_repo.get_by_id.assert_awaited_once_with(1, user.id)
-    list_cache.invalidate_list.assert_not_awaited()
-
-    ingredient_repo.session.sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(user.id)
 
 
 async def test_update_ingredient_empty_patch_raises(
@@ -309,22 +288,16 @@ async def test_delete_ingredient_raises_when_not_found(
         await ingredient_service.delete_ingredient(999)
 
 
-async def test_delete_ingredient_invalidates_list_cache(
+async def test_delete_ingredient(
     ingredient_service: IngredientService,
     ingredient_repo: AsyncMock,
-    list_cache: AsyncMock,
     user: User,
 ):
     ingredient_repo.delete_ingredient.return_value = True
 
     await ingredient_service.delete_ingredient(1)
 
-    list_cache.invalidate_list.assert_not_awaited()
-
-    ingredient_repo.session.sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(user.id)
+    ingredient_repo.delete_ingredient.assert_awaited_once_with(1, user.id)
 
 
 async def test_delete_all_ingredients_raises_when_empty(
@@ -339,7 +312,6 @@ async def test_delete_all_ingredients_raises_when_empty(
 async def test_delete_all_ingredients_deletes_all(
     ingredient_service: IngredientService,
     ingredient_repo: AsyncMock,
-    list_cache: AsyncMock,
     user: User,
 ):
     ingredient_repo.delete_all_ingredients.return_value = True
@@ -347,73 +319,3 @@ async def test_delete_all_ingredients_deletes_all(
     await ingredient_service.delete_all_ingredients()
 
     ingredient_repo.delete_all_ingredients.assert_awaited_once_with(user.id)
-    list_cache.invalidate_list.assert_not_awaited()
-
-    ingredient_repo.session.sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(user.id)
-
-
-async def test_multiple_crud_calls_invalidate_list_cache_once_after_commit(
-    ingredient_service: IngredientService,
-    ingredient_repo: AsyncMock,
-    list_cache: AsyncMock,
-    user: User,
-):
-    ingredient_repo.add_ingredient.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="양파",
-            purchase_date=date.today(),
-        )
-    ]
-    ingredient_repo.delete_ingredient.return_value = True
-
-    await ingredient_service.add_ingredients(AddIngredientRequest(ingredients=["양파"]))
-    await ingredient_service.delete_ingredient(1)
-
-    list_cache.invalidate_list.assert_not_awaited()
-
-    ingredient_repo.session.sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(user.id)
-
-
-async def test_rollback_does_not_invalidate_list_cache(
-    ingredient_service: IngredientService,
-    ingredient_repo: AsyncMock,
-    list_cache: AsyncMock,
-    user: User,
-):
-    ingredient_repo.add_ingredient.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="양파",
-            purchase_date=date.today(),
-        )
-    ]
-
-    sync_session = ingredient_repo.session.sync_session
-    sync_session.begin()
-
-    await ingredient_service.add_ingredients(AddIngredientRequest(ingredients=["양파"]))
-    sync_session.rollback()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_not_awaited()
-
-    ingredient_repo.session.sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_not_awaited()
-
-    sync_session.begin()
-    await ingredient_service.add_ingredients(AddIngredientRequest(ingredients=["당근"]))
-    sync_session.commit()
-    await asyncio.sleep(0)
-
-    list_cache.invalidate_list.assert_awaited_once_with(user.id)
