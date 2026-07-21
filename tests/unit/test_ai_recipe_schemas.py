@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,

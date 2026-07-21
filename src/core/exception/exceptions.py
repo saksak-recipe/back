@@ -105,3 +105,11 @@ class UserNotFoundException(NotFoundException):
 class IngredientNotFoundException(NotFoundException):
     def __init__(self, detail: str = "식재료를 찾을 수 없습니다."):
         super().__init__(code=ErrorCode.INGREDIENT_NOT_FOUND, detail=detail)
+
+
+# ----------------------------------------
+# 5. 장보기 관련
+# ----------------------------------------
+class ShoppingItemNotFoundException(NotFoundException):
+    def __init__(self, detail: str = "장보기 항목을 찾을 수 없습니다."):
+        super().__init__(code=ErrorCode.SHOPPING_ITEM_NOT_FOUND, detail=detail)

@@ -19,6 +19,12 @@ class Ingredient(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
+    group_id: Mapped[uuid6.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("groups.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     ingredient_name: Mapped[str] = mapped_column(String(45))
     expiration_date: Mapped[date | None] = mapped_column(Date)

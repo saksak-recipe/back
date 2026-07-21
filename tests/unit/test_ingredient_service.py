@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.exception.exceptions import BadRequestException, IngredientNotFoundException
 from domains.ingredient.model import Ingredient
+from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.service import IngredientService, compute_status
 from domains.user.model import User
@@ -154,6 +155,28 @@ async def test_get_ingredients_returns_user_items(
     assert len(result) == 1
     assert result[0].status == "unknown"
     ingredient_repo.get_ingredients.assert_awaited_once_with(user.id)
+
+
+async def test_get_ingredients_excludes_group_scoped_rows(db_session, test_user: User):
+    personal = Ingredient(
+        user_id=test_user.id,
+        ingredient_name="개인 양파",
+        purchase_date=date.today(),
+    )
+    group_scoped = Ingredient(
+        user_id=test_user.id,
+        group_id=uuid6.uuid7(),
+        ingredient_name="그룹 양파",
+        purchase_date=date.today(),
+    )
+    db_session.add_all([personal, group_scoped])
+    await db_session.flush()
+
+    result = await IngredientService(
+        user=test_user, ingredient_repo=IngredientRepository(db_session)
+    ).get_ingredients()
+
+    assert [item.ingredient_name for item in result] == ["개인 양파"]
 
 
 async def test_get_ingredients_sorts_by_status(
