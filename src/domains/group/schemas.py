@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from domains.ingredient.schemas import GetIngredientResponse
+from domains.shopping.schemas import ShoppingItemResponse
 
 
 def _validate_group_name(v: str) -> str:
@@ -76,7 +77,7 @@ class MergeRequest(BaseModel):
 
 class MergeResponse(BaseModel):
     created_ingredients: list[GetIngredientResponse] = Field(default_factory=list)
-    created_shopping_items: list[Any] = Field(default_factory=list)
+    created_shopping_items: list[ShoppingItemResponse] = Field(default_factory=list)
     skipped_ingredient_ids: list[int] = Field(default_factory=list)
     skipped_shopping_item_ids: list[int] = Field(default_factory=list)
     deleted_ingredient_ids: list[int] = Field(default_factory=list)

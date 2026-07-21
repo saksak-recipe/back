@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 import pytest
 
@@ -16,11 +17,14 @@ from domains.group.schemas import (
     CreateGroupRequest,
     InviteByNicknameRequest,
     JoinByCodeRequest,
+    MergeRequest,
     UpdateGroupRequest,
 )
 from domains.group.service import GroupService
+from domains.ingredient.model import Ingredient
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
+from domains.shopping.model import ShoppingItem
 from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
 from domains.shopping.repository import ShoppingRepository
 from domains.user.model import User
@@ -413,3 +417,117 @@ async def test_group_shopping_to_ingredient_creates_group_ingredient(
     assert ingredient.ingredient_name == "양파"
     assert await service.list_shopping_items() == []
     assert [item.ingredient_name for item in await service.list_ingredients()] == ["양파"]
+
+
+@pytest.mark.asyncio
+async def test_merge_copy_keeps_personal_and_skips_duplicates(db_session, test_user):
+    service = _service(test_user, db_session)
+    group = await service.create(CreateGroupRequest(name="우리집"))
+    ingredient_repo = IngredientRepository(db_session)
+    shopping_repo = ShoppingRepository(db_session)
+    personal_ingredient = (
+        await ingredient_repo.add_ingredient(
+            [
+                Ingredient(
+                    user_id=test_user.id,
+                    ingredient_name="양파",
+                    purchase_date=date(2026, 7, 1),
+                    expiration_date=date(2026, 7, 10),
+                )
+            ]
+        )
+    )[0]
+    duplicate_ingredient = (
+        await ingredient_repo.add_ingredient(
+            [
+                Ingredient(
+                    user_id=test_user.id,
+                    ingredient_name="감자",
+                    purchase_date=date(2026, 7, 2),
+                    expiration_date=None,
+                )
+            ]
+        )
+    )[0]
+    personal_shopping = (
+        await shopping_repo.add_items(
+            [ShoppingItem(user_id=test_user.id, name="우유", is_checked=True)]
+        )
+    )[0]
+    duplicate_shopping = (
+        await shopping_repo.add_items(
+            [ShoppingItem(user_id=test_user.id, name="계란", is_checked=False)]
+        )
+    )[0]
+    await service.add_ingredients(AddIngredientRequest(ingredients=["감자"]))
+    await service.add_shopping_items(AddShoppingItemsRequest(names=["계란"]))
+
+    result = await service.merge(
+        MergeRequest(
+            mode="copy",
+            ingredients=[personal_ingredient.id, duplicate_ingredient.id],
+            shopping_items=[personal_shopping.id, duplicate_shopping.id],
+        )
+    )
+
+    assert [item.ingredient_name for item in result.created_ingredients] == ["양파"]
+    assert result.created_ingredients[0].purchase_date == date(2026, 7, 1)
+    assert result.created_ingredients[0].expiration_date == date(2026, 7, 10)
+    assert [item.name for item in result.created_shopping_items] == ["우유"]
+    assert result.created_shopping_items[0].is_checked is True
+    assert result.skipped_ingredient_ids == [duplicate_ingredient.id]
+    assert result.skipped_shopping_item_ids == [duplicate_shopping.id]
+    assert result.deleted_ingredient_ids == []
+    assert result.deleted_shopping_item_ids == []
+    assert await ingredient_repo.get_by_id(personal_ingredient.id, test_user.id)
+    assert await shopping_repo.get_by_id(personal_shopping.id, test_user.id)
+    assert await ingredient_repo.find_name_in_group(group.id, "양파")
+    assert "우유" in await shopping_repo.get_existing_names_in_group(group.id, ["우유"])
+
+
+@pytest.mark.asyncio
+async def test_merge_move_deletes_created_personal_items(db_session, test_user):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    ingredient_repo = IngredientRepository(db_session)
+    shopping_repo = ShoppingRepository(db_session)
+    personal_ingredient = (
+        await ingredient_repo.add_ingredient(
+            [Ingredient(user_id=test_user.id, ingredient_name="양파", expiration_date=None)]
+        )
+    )[0]
+    personal_shopping = (
+        await shopping_repo.add_items(
+            [ShoppingItem(user_id=test_user.id, name="우유", is_checked=True)]
+        )
+    )[0]
+
+    result = await service.merge(
+        MergeRequest(
+            mode="move",
+            ingredients=[personal_ingredient.id],
+            shopping_items=[personal_shopping.id],
+        )
+    )
+
+    assert [item.ingredient_name for item in result.created_ingredients] == ["양파"]
+    assert [item.name for item in result.created_shopping_items] == ["우유"]
+    assert result.deleted_ingredient_ids == [personal_ingredient.id]
+    assert result.deleted_shopping_item_ids == [personal_shopping.id]
+    assert await ingredient_repo.get_by_id(personal_ingredient.id, test_user.id) is None
+    assert await shopping_repo.get_by_id(personal_shopping.id, test_user.id) is None
+
+
+@pytest.mark.asyncio
+async def test_merge_rejects_foreign_personal_item_id(db_session, test_user):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    other_user = await _add_user(db_session, "other@example.com", "other")
+    foreign_ingredient = (
+        await IngredientRepository(db_session).add_ingredient(
+            [Ingredient(user_id=other_user.id, ingredient_name="양파", expiration_date=None)]
+        )
+    )[0]
+
+    with pytest.raises(NotFoundException):
+        await service.merge(MergeRequest(mode="copy", ingredients=[foreign_ingredient.id]))

@@ -23,6 +23,8 @@ from domains.group.schemas import (
     GroupResponse,
     InviteByNicknameRequest,
     JoinByCodeRequest,
+    MergeRequest,
+    MergeResponse,
     UpdateGroupRequest,
 )
 from domains.ingredient.repository import IngredientRepository
@@ -378,6 +380,92 @@ class GroupService:
         if not deleted:
             raise ShoppingItemNotFoundException()
         return _to_add_response(saved[0])
+
+    async def merge(self, request: MergeRequest) -> MergeResponse:
+        membership, _ = await self._require_membership()
+
+        personal_ingredients: list[Ingredient] = []
+        for ingredient_id in request.ingredients:
+            ingredient = await self.ingredient_repo.get_by_id(
+                ingredient_id, self.user.id
+            )
+            if ingredient is None:
+                raise IngredientNotFoundException()
+            personal_ingredients.append(ingredient)
+
+        personal_shopping_items: list[ShoppingItem] = []
+        for item_id in request.shopping_items:
+            item = await self.shopping_repo.get_by_id(item_id, self.user.id)
+            if item is None:
+                raise ShoppingItemNotFoundException()
+            personal_shopping_items.append(item)
+
+        created_ingredients: list[GetIngredientResponse] = []
+        created_shopping_items: list[ShoppingItemResponse] = []
+        skipped_ingredient_ids: list[int] = []
+        skipped_shopping_item_ids: list[int] = []
+        deleted_ingredient_ids: list[int] = []
+        deleted_shopping_item_ids: list[int] = []
+
+        for ingredient in personal_ingredients:
+            if (
+                await self.ingredient_repo.find_name_in_group(
+                    membership.group_id, ingredient.ingredient_name
+                )
+                is not None
+            ):
+                skipped_ingredient_ids.append(ingredient.id)
+                continue
+
+            saved = await self.ingredient_repo.add_ingredient(
+                [
+                    Ingredient(
+                        user_id=self.user.id,
+                        group_id=membership.group_id,
+                        ingredient_name=ingredient.ingredient_name,
+                        purchase_date=ingredient.purchase_date,
+                        expiration_date=ingredient.expiration_date,
+                    )
+                ]
+            )
+            created_ingredients.append(_to_get_response(saved[0]))
+            if request.mode == "move":
+                await self.ingredient_repo.delete_ingredient(ingredient.id, self.user.id)
+                deleted_ingredient_ids.append(ingredient.id)
+
+        for item in personal_shopping_items:
+            if (
+                item.name
+                in await self.shopping_repo.get_existing_names_in_group(
+                    membership.group_id, [item.name]
+                )
+            ):
+                skipped_shopping_item_ids.append(item.id)
+                continue
+
+            saved = await self.shopping_repo.add_items_in_group(
+                [
+                    ShoppingItem(
+                        user_id=self.user.id,
+                        group_id=membership.group_id,
+                        name=item.name,
+                        is_checked=item.is_checked,
+                    )
+                ]
+            )
+            created_shopping_items.append(ShoppingItemResponse.model_validate(saved[0]))
+            if request.mode == "move":
+                await self.shopping_repo.delete_item(item.id, self.user.id)
+                deleted_shopping_item_ids.append(item.id)
+
+        return MergeResponse(
+            created_ingredients=created_ingredients,
+            created_shopping_items=created_shopping_items,
+            skipped_ingredient_ids=skipped_ingredient_ids,
+            skipped_shopping_item_ids=skipped_shopping_item_ids,
+            deleted_ingredient_ids=deleted_ingredient_ids,
+            deleted_shopping_item_ids=deleted_shopping_item_ids,
+        )
 
     async def _require_membership(self) -> tuple[GroupMember, Group]:
         membership = await self.group_repo.get_membership(self.user.id)
