@@ -2,25 +2,10 @@ from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
 
-from api.deps import get_ai_recipe_service, get_recipe_detail_service
+from api.deps import get_recipe_detail_service
 from core.exception.codes import ErrorCode
-from domains.ai_recipe.schemas import AiRecipeDetailResponse, AiRecipeIngredient, AiRecipeStep
 from domains.recipe_detail.schemas import RecipeDetailResponse, RecipeIngredient, RecipeStep
 from main import app
-
-
-def _override_ai_detail():
-    mock = AsyncMock()
-    mock.get_detail.return_value = AiRecipeDetailResponse(
-        recipe_id="ai-1",
-        recipe_name="된장찌개",
-        ingredients=[AiRecipeIngredient(name="된장", amount="2큰술")],
-        steps=[AiRecipeStep(order=1, description="끓인다")],
-        tips=["중불"],
-        owned_ingredients=["된장"],
-        missing_ingredients=["두부"],
-    )
-    return mock
 
 
 def _override_mangae_detail():
@@ -33,7 +18,7 @@ def _override_mangae_detail():
         main_image_url=None,
         ingredients=[RecipeIngredient(name="김치", amount="1컵")],
         steps=[RecipeStep(order=1, description="볶는다")],
-        tips=[],
+        tips=["중불"],
     )
     return mock
 
@@ -44,27 +29,27 @@ async def test_saved_requires_auth(client: AsyncClient):
     assert response.json()["code"] == ErrorCode.UNAUTHORIZED
 
 
-async def test_save_list_detail_delete_ai(
+async def test_save_list_detail_delete_mangae(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    ai_mock = _override_ai_detail()
-    app.dependency_overrides[get_ai_recipe_service] = lambda: ai_mock
+    mangae_mock = _override_mangae_detail()
+    app.dependency_overrides[get_recipe_detail_service] = lambda: mangae_mock
     try:
         save = await client.post(
             "/api/v1/recipes/saved",
             headers=auth_headers,
-            json={"source": "ai", "source_id": "ai-1"},
+            json={"source": "mangae", "source_id": "김치볶음밥|요리왕"},
         )
         assert save.status_code == 201
         body = save.json()
-        assert body["recipe_name"] == "된장찌개"
-        assert body["snapshot"]["owned_ingredients"] == ["된장"]
+        assert body["recipe_name"] == "김치볶음밥"
+        assert body["source"] == "mangae"
         saved_id = body["id"]
 
         dup = await client.post(
             "/api/v1/recipes/saved",
             headers=auth_headers,
-            json={"source": "ai", "source_id": "ai-1"},
+            json={"source": "mangae", "source_id": "김치볶음밥|요리왕"},
         )
         assert dup.status_code == 409
         assert dup.json()["code"] == ErrorCode.CONFLICT
@@ -72,7 +57,7 @@ async def test_save_list_detail_delete_ai(
         status = await client.get(
             "/api/v1/recipes/saved/status",
             headers=auth_headers,
-            params={"source": "ai", "source_id": "ai-1"},
+            params={"source": "mangae", "source_id": "김치볶음밥|요리왕"},
         )
         assert status.status_code == 200
         assert status.json() == {"saved": True, "id": saved_id}
@@ -98,7 +83,7 @@ async def test_save_list_detail_delete_ai(
         )
         assert missing.status_code == 404
     finally:
-        app.dependency_overrides.pop(get_ai_recipe_service, None)
+        app.dependency_overrides.pop(get_recipe_detail_service, None)
 
 
 async def test_save_mangae(client: AsyncClient, auth_headers: dict[str, str]):
@@ -117,11 +102,29 @@ async def test_save_mangae(client: AsyncClient, auth_headers: dict[str, str]):
         app.dependency_overrides.pop(get_recipe_detail_service, None)
 
 
+async def test_save_rejects_ai_source(client: AsyncClient, auth_headers: dict[str, str]):
+    response = await client.post(
+        "/api/v1/recipes/saved",
+        headers=auth_headers,
+        json={"source": "ai", "source_id": "ai-1"},
+    )
+    assert response.status_code == 422
+
+
 async def test_status_not_saved(client: AsyncClient, auth_headers: dict[str, str]):
     response = await client.get(
         "/api/v1/recipes/saved/status",
         headers=auth_headers,
-        params={"source": "ai", "source_id": "none"},
+        params={"source": "mangae", "source_id": "없음|작성자"},
     )
     assert response.status_code == 200
     assert response.json() == {"saved": False, "id": None}
+
+
+async def test_status_rejects_ai_source(client: AsyncClient, auth_headers: dict[str, str]):
+    response = await client.get(
+        "/api/v1/recipes/saved/status",
+        headers=auth_headers,
+        params={"source": "ai", "source_id": "ai-1"},
+    )
+    assert response.status_code == 400

@@ -192,13 +192,11 @@ def get_saved_recipe_repo(
 def get_saved_recipe_service(
     user: User = Depends(get_current_user),
     repo: SavedRecipeRepository = Depends(get_saved_recipe_repo),
-    ai_recipe_service: AiRecipeService = Depends(get_ai_recipe_service),
     recipe_detail_service: RecipeDetailService = Depends(get_recipe_detail_service),
 ) -> SavedRecipeService:
     return SavedRecipeService(
         user=user,
         repo=repo,
-        ai_recipe_service=ai_recipe_service,
         recipe_detail_service=recipe_detail_service,
     )
 

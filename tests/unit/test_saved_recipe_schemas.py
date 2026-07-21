@@ -1,14 +1,20 @@
+import pytest
+from pydantic import ValidationError
+
 from domains.saved_recipe.schemas import (
     SaveRecipeRequest,
     SavedRecipeStatusResponse,
 )
 
 
-def test_save_recipe_request_accepts_ai_and_mangae():
-    ai = SaveRecipeRequest(source="ai", source_id="abc-123")
+def test_save_recipe_request_accepts_mangae_only():
     mangae = SaveRecipeRequest(source="mangae", source_id="보드|작성자")
-    assert ai.source == "ai"
     assert mangae.source == "mangae"
+
+
+def test_save_recipe_request_rejects_ai():
+    with pytest.raises(ValidationError):
+        SaveRecipeRequest(source="ai", source_id="abc-123")
 
 
 def test_status_response_shape():

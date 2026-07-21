@@ -20,7 +20,6 @@ from domains.saved_recipe.schemas import (
 from domains.user.model import User
 
 if TYPE_CHECKING:
-    from domains.ai_recipe.service import AiRecipeService
     from domains.recipe_detail.service import RecipeDetailService
 
 
@@ -44,17 +43,14 @@ class SavedRecipeService:
         self,
         user: User,
         repo: SavedRecipeRepository,
-        ai_recipe_service: AiRecipeService,
         recipe_detail_service: RecipeDetailService,
     ) -> None:
         self.user = user
         self.repo = repo
-        self.ai_recipe_service = ai_recipe_service
         self.recipe_detail_service = recipe_detail_service
 
     async def save(self, request: SaveRecipeRequest) -> SavedRecipeDetailResponse:
-        if request.source == "mangae":
-            parse_mangae_source_id(request.source_id)
+        parse_mangae_source_id(request.source_id)
 
         existing = await self.repo.find_by_source(
             self.user.id, request.source, request.source_id
@@ -65,35 +61,20 @@ class SavedRecipeService:
                 detail="이미 저장된 레시피입니다.",
             )
 
-        if request.source == "ai":
-            detail = await self.ai_recipe_service.get_detail(request.source_id)
-            recipe_name = detail.recipe_name
-            recipe_difficulty = None
-            time_value = None
-            snapshot = {
-                "ingredients": [item.model_dump() for item in detail.ingredients],
-                "steps": [item.model_dump() for item in detail.steps],
-                "tips": list(detail.tips),
-                "owned_ingredients": list(detail.owned_ingredients),
-                "missing_ingredients": list(detail.missing_ingredients),
-            }
-        else:
-            board_name, author_name = parse_mangae_source_id(request.source_id)
-            detail = await self.recipe_detail_service.get_detail(
-                board_name, author_name
-            )
-            recipe_name = detail.recipe_name
-            recipe_difficulty = None
-            time_value = None
-            snapshot = {
-                "ingredients": [item.model_dump() for item in detail.ingredients],
-                "steps": [item.model_dump() for item in detail.steps],
-                "tips": list(detail.tips),
-                "board_name": detail.board_name,
-                "author_name": detail.author_name,
-                "source_url": detail.source_url,
-                "main_image_url": detail.main_image_url,
-            }
+        board_name, author_name = parse_mangae_source_id(request.source_id)
+        detail = await self.recipe_detail_service.get_detail(board_name, author_name)
+        recipe_name = detail.recipe_name
+        recipe_difficulty = None
+        time_value = None
+        snapshot = {
+            "ingredients": [item.model_dump() for item in detail.ingredients],
+            "steps": [item.model_dump() for item in detail.steps],
+            "tips": list(detail.tips),
+            "board_name": detail.board_name,
+            "author_name": detail.author_name,
+            "source_url": detail.source_url,
+            "main_image_url": detail.main_image_url,
+        }
 
         entity = SavedRecipe(
             user_id=self.user.id,
@@ -125,10 +106,9 @@ class SavedRecipeService:
     async def status(
         self, source: str, source_id: str
     ) -> SavedRecipeStatusResponse:
-        if source not in ("ai", "mangae"):
-            raise BadRequestException(detail="source는 ai 또는 mangae 여야 합니다.")
-        if source == "mangae":
-            parse_mangae_source_id(source_id)
+        if source != "mangae":
+            raise BadRequestException(detail="source는 mangae 여야 합니다.")
+        parse_mangae_source_id(source_id)
         row = await self.repo.find_by_source(self.user.id, source, source_id)
         if row is None:
             return SavedRecipeStatusResponse(saved=False, id=None)

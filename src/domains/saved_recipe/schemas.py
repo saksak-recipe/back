@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SaveRecipeRequest(BaseModel):
-    source: Literal["ai", "mangae"]
+    source: Literal["mangae"]
     source_id: str = Field(min_length=1)
 
 
