@@ -56,9 +56,10 @@ async def recommend_recipes(
 )
 async def ai_recommend_recipes(
     refresh: bool = False,
+    scope: RecipeScope = RecipeScope.personal,
     service: AiRecipeService = Depends(get_ai_recipe_service),
 ) -> AiRecipeRecommendationResponse:
-    return await service.recommend(refresh=refresh)
+    return await service.recommend(refresh=refresh, scope=scope)
 
 
 @router.get(
@@ -74,9 +75,10 @@ async def ai_recommend_recipes(
 )
 async def ai_recipe_detail(
     recipe_id: str,
+    scope: RecipeScope = RecipeScope.personal,
     service: AiRecipeService = Depends(get_ai_recipe_service),
 ) -> AiRecipeDetailResponse:
-    return await service.get_detail(recipe_id)
+    return await service.get_detail(recipe_id, scope=scope)
 
 
 @router.get(

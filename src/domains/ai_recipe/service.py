@@ -18,7 +18,7 @@ from domains.ai_recipe.schemas import (
     AiRecipeRecommendation,
     AiRecipeRecommendationResponse,
 )
-from domains.ingredient.repository import IngredientRepository
+from domains.ingredient.scope import IngredientScopeLoader, RecipeScope
 from domains.ingredient_matching.matching import normalize_name
 from domains.ingredient_matching.urgency import urgent_names
 from domains.rag.mapper import classify_ingredients
@@ -36,24 +36,31 @@ class AiRecipeService:
     def __init__(
         self,
         user: User,
-        ingredient_repo: IngredientRepository,
+        scope_loader: IngredientScopeLoader,
         agent: AiRecipeAgent,
         cache: AiRecipeCache,
     ) -> None:
         self.user = user
-        self.ingredient_repo = ingredient_repo
+        self.scope_loader = scope_loader
         self.agent = agent
         self.cache = cache
 
-    async def recommend(self, refresh: bool = False) -> AiRecipeRecommendationResponse:
-        ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
+    async def recommend(
+        self,
+        refresh: bool = False,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> AiRecipeRecommendationResponse:
+        scoped = await self.scope_loader.load(scope)
+        ingredients = scoped.ingredients
         names = [item.ingredient_name for item in ingredients]
         if not names:
             return AiRecipeRecommendationResponse(ingredients_used=[], recipes=[])
 
         digest = ingredients_hash(names)
         if not refresh:
-            cached = await self.cache.get_list(self.user.id)
+            cached = await self.cache.get_list(
+                scoped.cache_owner_id, scope=scoped.scope
+            )
             if cached is not None and cached.ingredients_hash == digest:
                 return AiRecipeRecommendationResponse(
                     ingredients_used=cached.ingredients_used,
@@ -91,12 +98,13 @@ class AiRecipeService:
             recipes=recipes,
         )
         await self.cache.set_list(
-            self.user.id,
+            scoped.cache_owner_id,
             AiRecipeListCacheRecord(
                 ingredients_hash=digest,
                 ingredients_used=names,
                 recipes=response.recipes,
             ),
+            scope=scoped.scope,
         )
         return response
 
@@ -121,7 +129,11 @@ class AiRecipeService:
             detail="AI 레시피 생성에 실패했습니다."
         ) from last_exc
 
-    async def get_detail(self, recipe_id: str) -> AiRecipeDetailResponse:
+    async def get_detail(
+        self,
+        recipe_id: str,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> AiRecipeDetailResponse:
         record = await self.cache.get(recipe_id)
         if record is None:
             raise NotFoundException(detail="AI 레시피를 찾지 못했습니다.")
@@ -129,8 +141,8 @@ class AiRecipeService:
         if record.has_detail():
             return self._detail_response(record, cached=True)
 
-        ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
-        names = [item.ingredient_name for item in ingredients]
+        scoped = await self.scope_loader.load(scope)
+        names = [item.ingredient_name for item in scoped.ingredients]
         try:
             detail = await asyncio.wait_for(
                 asyncio.to_thread(self.agent.run_detail, names, record),

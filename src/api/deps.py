@@ -93,23 +93,6 @@ def get_shopping_service(
     )
 
 
-def get_ai_recipe_service(
-    user: User = Depends(get_current_user),
-    ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
-) -> AiRecipeService:
-    cache = AiRecipeCache(get_redis(), ttl_seconds=86400)
-    return AiRecipeService(
-        user=user,
-        ingredient_repo=ingredient_repo,
-        agent=AiRecipeAgent(),
-        cache=cache,
-    )
-
-
-def get_rag_retriever() -> RecipeRetriever:
-    return get_recipe_retriever()
-
-
 def get_ingredient_scope_loader(
     user: User = Depends(get_current_user),
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
@@ -120,6 +103,23 @@ def get_ingredient_scope_loader(
         ingredient_repo=ingredient_repo,
         group_repo=GroupRepository(session),
     )
+
+
+def get_ai_recipe_service(
+    user: User = Depends(get_current_user),
+    scope_loader: IngredientScopeLoader = Depends(get_ingredient_scope_loader),
+) -> AiRecipeService:
+    cache = AiRecipeCache(get_redis(), ttl_seconds=86400)
+    return AiRecipeService(
+        user=user,
+        scope_loader=scope_loader,
+        agent=AiRecipeAgent(),
+        cache=cache,
+    )
+
+
+def get_rag_retriever() -> RecipeRetriever:
+    return get_recipe_retriever()
 
 
 def get_rag_service(
