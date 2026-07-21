@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import MagicMock
 
 from httpx import AsyncClient
@@ -108,5 +109,87 @@ async def test_recommendations_group_without_membership_404(
 
         assert response.status_code == 404
         assert response.json()["code"] == ErrorCode.GROUP_NOT_FOUND
+    finally:
+        app.dependency_overrides.pop(get_rag_retriever, None)
+
+
+async def test_recommendations_group_scope_uses_group_fridge_only(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={
+            "ingredients": ["개인재료"],
+            "purchase_date": date.today().isoformat(),
+            "expiration_date": None,
+        },
+    )
+    create = await client.post(
+        "/api/v1/groups",
+        headers=auth_headers,
+        json={"name": "우리집"},
+    )
+    assert create.status_code == 201
+    add = await client.post(
+        "/api/v1/groups/me/ingredients",
+        headers=auth_headers,
+        json={
+            "ingredients": ["그룹재료"],
+            "purchase_date": date.today().isoformat(),
+            "expiration_date": None,
+        },
+    )
+    assert add.status_code == 201
+
+    mock_retriever = MagicMock()
+    mock_retriever.search.return_value = []
+    app.dependency_overrides[get_rag_retriever] = lambda: mock_retriever
+    try:
+        response = await client.get(
+            "/api/v1/recipes/recommendations",
+            headers=auth_headers,
+            params={"scope": "group"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ingredients_used"] == ["그룹재료"]
+        called_query = mock_retriever.search.call_args.args[0]
+        assert "그룹재료" in called_query
+        assert "개인재료" not in called_query
+    finally:
+        app.dependency_overrides.pop(get_rag_retriever, None)
+
+
+async def test_recommendations_group_scope_empty_ignores_personal(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={
+            "ingredients": ["개인재료"],
+            "purchase_date": date.today().isoformat(),
+            "expiration_date": None,
+        },
+    )
+    create = await client.post(
+        "/api/v1/groups",
+        headers=auth_headers,
+        json={"name": "우리집"},
+    )
+    assert create.status_code == 201
+
+    mock_retriever = MagicMock()
+    app.dependency_overrides[get_rag_retriever] = lambda: mock_retriever
+    try:
+        response = await client.get(
+            "/api/v1/recipes/recommendations",
+            headers=auth_headers,
+            params={"scope": "group"},
+        )
+        assert response.status_code == 200
+        assert response.json()["ingredients_used"] == []
+        mock_retriever.search.assert_not_called()
     finally:
         app.dependency_overrides.pop(get_rag_retriever, None)
