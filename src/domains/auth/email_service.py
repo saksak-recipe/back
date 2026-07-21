@@ -66,7 +66,7 @@ class EmailService:
             )
 
         subject = _SUBJECT_BY_PURPOSE.get(purpose, "인증 코드")
-        body = f"인증 코드: {code}\n\n이 코드는 10분간 유효합니다."
+        body = f"인증 코드: {code}\n\n이 코드는 3분간 유효합니다."
 
         message = EmailMessage()
         message["Subject"] = subject

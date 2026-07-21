@@ -10,8 +10,7 @@ from core.exception.exceptions import BadRequestException, ExternalServiceExcept
 
 PURPOSE_SIGNUP = "signup"
 PURPOSE_PASSWORD_RESET = "password_reset"
-CODE_TTL_SECONDS = 600
-COOLDOWN_SECONDS = 60
+CODE_TTL_SECONDS = 180
 MAX_ATTEMPTS = 5
 
 
@@ -30,34 +29,43 @@ class VerificationCodeStore:
     def _code_key(self, purpose: str, email: str) -> str:
         return f"email_code:{purpose}:{email.lower()}"
 
-    def _cooldown_key(self, purpose: str, email: str) -> str:
-        return f"email_code_cooldown:{purpose}:{email.lower()}"
+    def _resend_used_key(self, purpose: str, email: str) -> str:
+        return f"email_code_resend_used:{purpose}:{email.lower()}"
+
+    async def _store_code(self, purpose: str, email: str) -> str:
+        code = generate_email_code()
+        payload = json.dumps({"hash": hash_email_code(code), "attempts": 0})
+        await self._redis.set(
+            self._code_key(purpose, email),
+            payload,
+            ex=CODE_TTL_SECONDS,
+        )
+        return code
 
     async def issue(self, purpose: str, email: str) -> str:
         email = email.lower()
-        cooldown_key = self._cooldown_key(purpose, email)
         try:
-            cooldown_set = await self._redis.set(
-                cooldown_key,
+            await self._redis.delete(self._resend_used_key(purpose, email))
+            return await self._store_code(purpose, email)
+        except Exception as exc:
+            raise ExternalServiceException("인증 코드 저장에 실패했습니다.") from exc
+
+    async def resend(self, purpose: str, email: str) -> str:
+        email = email.lower()
+        resend_key = self._resend_used_key(purpose, email)
+        try:
+            resend_set = await self._redis.set(
+                resend_key,
                 "1",
-                ex=COOLDOWN_SECONDS,
+                ex=CODE_TTL_SECONDS,
                 nx=True,
             )
-            if not cooldown_set:
+            if not resend_set:
                 raise BadRequestException(
                     code=ErrorCode.VERIFICATION_COOLDOWN,
-                    detail="인증 코드 재발송은 잠시 후 다시 시도해 주세요.",
+                    detail="인증 코드 재발송은 1회만 가능합니다.",
                 )
-            code = generate_email_code()
-            payload = json.dumps(
-                {"hash": hash_email_code(code), "attempts": 0}
-            )
-            await self._redis.set(
-                self._code_key(purpose, email),
-                payload,
-                ex=CODE_TTL_SECONDS,
-            )
-            return code
+            return await self._store_code(purpose, email)
         except BadRequestException:
             raise
         except Exception as exc:
@@ -84,6 +92,7 @@ class VerificationCodeStore:
                         if data["hash"] == hash_email_code(code):
                             pipe.multi()
                             pipe.delete(key)
+                            pipe.delete(self._resend_used_key(purpose, email))
                             await pipe.execute()
                             return
 

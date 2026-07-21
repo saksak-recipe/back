@@ -33,11 +33,18 @@ async def test_verify_wrong_code_raises(store: VerificationCodeStore):
     assert ei.value.code == ErrorCode.INVALID_VERIFICATION_CODE
 
 
-async def test_cooldown_blocks_reissue(store: VerificationCodeStore):
+async def test_resend_limit_blocks_second_resend(store: VerificationCodeStore):
     await store.issue(PURPOSE_SIGNUP, "a@example.com")
+    await store.resend(PURPOSE_SIGNUP, "a@example.com")
     with pytest.raises(BadRequestException) as ei:
-        await store.issue(PURPOSE_SIGNUP, "a@example.com")
+        await store.resend(PURPOSE_SIGNUP, "a@example.com")
     assert ei.value.code == ErrorCode.VERIFICATION_COOLDOWN
+
+
+async def test_resend_after_initial_issue_succeeds(store: VerificationCodeStore):
+    await store.issue(PURPOSE_SIGNUP, "a@example.com")
+    code = await store.resend(PURPOSE_SIGNUP, "a@example.com")
+    assert len(code) == 6 and code.isdigit()
 
 
 async def test_five_failures_invalidate_code(
@@ -61,10 +68,11 @@ async def test_five_failures_invalidate_code(
     assert ei.value.code == ErrorCode.INVALID_VERIFICATION_CODE
 
 
-async def test_concurrent_issue_allows_only_one_code(
+async def test_concurrent_resend_allows_only_one_code(
     store: VerificationCodeStore,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    await store.issue(PURPOSE_SIGNUP, "a@example.com")
     codes = iter(("111111", "222222"))
     monkeypatch.setattr(
         verification_store,
@@ -73,8 +81,8 @@ async def test_concurrent_issue_allows_only_one_code(
     )
 
     results = await asyncio.gather(
-        store.issue(PURPOSE_SIGNUP, "a@example.com"),
-        store.issue(PURPOSE_SIGNUP, "a@example.com"),
+        store.resend(PURPOSE_SIGNUP, "a@example.com"),
+        store.resend(PURPOSE_SIGNUP, "a@example.com"),
         return_exceptions=True,
     )
 

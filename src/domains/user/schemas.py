@@ -71,6 +71,7 @@ class SignUpRequest(BaseModel):
 class SignUpResponse(BaseModel):
     email: EmailStr
     message: str = "verification_code_sent"
+    expires_in_seconds: int = 180
 
 
 class LogInRequest(BaseModel):

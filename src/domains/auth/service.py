@@ -24,6 +24,7 @@ from domains.auth.schemas import (
     PasswordResetConfirmRequest,
 )
 from domains.auth.verification_store import (
+    CODE_TTL_SECONDS,
     PURPOSE_PASSWORD_RESET,
     PURPOSE_SIGNUP,
     VerificationCodeStore,
@@ -106,11 +107,11 @@ class AuthService:
                 code=ErrorCode.EMAIL_ALREADY_VERIFIED,
                 detail="이미 인증된 이메일입니다.",
             )
-        code = await self.verification_store.issue(PURPOSE_SIGNUP, email)
+        code = await self.verification_store.resend(PURPOSE_SIGNUP, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
         )
-        return {"ok": True}
+        return {"ok": True, "expires_in_seconds": CODE_TTL_SECONDS}
 
     async def request_password_reset(self, email: str) -> dict:
         response = {"ok": True, "message": "password_reset_email_sent"}
