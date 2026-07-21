@@ -11,15 +11,17 @@ from domains.ai_recipe.agent import AgentFailedError, AiRecipeAgent
 from domains.ai_recipe.cache import AiRecipeCache
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
+    AiRecipeCandidate,
     AiRecipeDetailResponse,
     AiRecipeRecommendation,
     AiRecipeRecommendationResponse,
 )
 from domains.ingredient.repository import IngredientRepository
+from domains.ingredient_matching.urgency import urgent_names
 from domains.rag.mapper import classify_ingredients
 from domains.user.model import User
 
-AGENT_TIMEOUT_SECONDS = 60
+AGENT_TIMEOUT_SECONDS = 25
 
 
 class AiRecipeService:
@@ -41,16 +43,7 @@ class AiRecipeService:
         if not names:
             return AiRecipeRecommendationResponse(ingredients_used=[], recipes=[])
 
-        try:
-            candidates = await asyncio.wait_for(
-                asyncio.to_thread(self.agent.run_list, names),
-                timeout=AGENT_TIMEOUT_SECONDS,
-            )
-        except (TimeoutError, AgentFailedError, openai.OpenAIError) as exc:
-            logger.exception("AI recipe recommend failed")
-            raise ExternalServiceException(
-                detail="AI 레시피 생성에 실패했습니다."
-            ) from exc
+        candidates = await self._generate_list(names, urgent_names(ingredients))
 
         recipes: list[AiRecipeRecommendation] = []
         for candidate in candidates:
@@ -82,6 +75,27 @@ class AiRecipeService:
             ingredients_used=names,
             recipes=recipes,
         )
+
+    async def _generate_list(
+        self,
+        names: list[str],
+        urgent: list[str],
+    ) -> list[AiRecipeCandidate]:
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(self.agent.run_list, names, urgent),
+                    timeout=AGENT_TIMEOUT_SECONDS,
+                )
+            except (TimeoutError, AgentFailedError, openai.OpenAIError) as exc:
+                last_exc = exc
+
+        assert last_exc is not None
+        logger.error("AI recipe recommend failed: {}", last_exc)
+        raise ExternalServiceException(
+            detail="AI 레시피 생성에 실패했습니다."
+        ) from last_exc
 
     async def get_detail(self, recipe_id: str) -> AiRecipeDetailResponse:
         record = await self.cache.get(recipe_id)
