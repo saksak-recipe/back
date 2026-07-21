@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -43,3 +44,35 @@ class UserRepository:
         self.session.add(user)
         await self.session.flush()
         return user
+
+    async def save(self, user: User) -> User:
+        try:
+            self.session.add(user)
+            await self.session.flush()
+            return user
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="사용자 저장 중 DB 오류가 발생했습니다."
+            ) from e
+
+    async def delete_user(self, user: User) -> None:
+        try:
+            await self.session.delete(user)
+            await self.session.flush()
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="사용자 삭제 중 DB 오류가 발생했습니다."
+            ) from e
+
+    async def list_withdrawn_before(self, cutoff: datetime) -> list[User]:
+        try:
+            stmt = select(User).where(
+                User.deleted_at.is_not(None),
+                User.deleted_at < cutoff,
+            )
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="탈퇴 사용자 조회 중 DB 오류가 발생했습니다."
+            ) from e
