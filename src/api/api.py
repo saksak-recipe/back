@@ -7,6 +7,7 @@ from api.v1.endpoints.rag import router as rag_router
 from api.v1.endpoints.saved_recipe import router as saved_recipe_router
 from api.v1.endpoints.shopping import router as shopping_router
 from api.v1.endpoints.group import router as group_router
+from api.v1.endpoints.notification import router as notification_router
 
 api_router = APIRouter()
 
@@ -17,3 +18,4 @@ api_router.include_router(rag_router)
 api_router.include_router(saved_recipe_router)
 api_router.include_router(shopping_router)
 api_router.include_router(group_router)
+api_router.include_router(notification_router)

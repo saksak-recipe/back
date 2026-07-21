@@ -30,6 +30,7 @@ from domains.saved_recipe.service import SavedRecipeService
 from domains.group.repository import GroupRepository
 from domains.group.service import GroupService
 from domains.notification.repository import NotificationRepository
+from domains.notification.service import NotificationService
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.service import ShoppingService
 
@@ -212,4 +213,22 @@ def get_group_service(
         shopping_repo=ShoppingRepository(session),
         notification_repo=NotificationRepository(session),
         list_cache=AiRecipeCache(get_redis()),
+    )
+
+
+def get_notification_repo(
+    session: AsyncSession = Depends(get_db),
+) -> NotificationRepository:
+    return NotificationRepository(session)
+
+
+def get_notification_service(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> NotificationService:
+    return NotificationService(
+        user=user,
+        notification_repo=NotificationRepository(session),
+        ingredient_repo=IngredientRepository(session),
+        group_repo=GroupRepository(session),
     )
