@@ -25,6 +25,15 @@ class Settings(BaseSettings):
 
     WITHDRAWAL_GRACE_DAYS: int = 7
 
+    EMAIL_BACKEND: str = "console"  # console | smtp
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
+    SMTP_FROM_EMAIL: str | None = None
+    SMTP_FROM_NAME: str = "삭삭"
+    SMTP_USE_TLS: bool = True
+
     @property
     def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD.get_secret_value()}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
