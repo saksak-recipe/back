@@ -19,3 +19,11 @@ Task 5: verification 65 passed; awaiting final whole-branch review
 Task 5: complete (68 passed; final review Ready to merge after e16f935)
 Final: Ready to merge — awaiting user integration choice
 Final: merged to main (fast-forward e16f935); feature branch deleted
+
+## feat/remove-ai-recipe-agent
+Plan: docs/superpowers/plans/2026-07-22-remove-ai-recipe-agent.md
+Task 1: complete (commits 5c9df70..b7b7f87, review clean; minors: double parse, API test overlap)
+Task 2: complete (commits b7b7f87..0336411, review clean; minor: dead sync_session fixture)
+Task 3: complete (commits 0336411..fd4c864, review clean)
+Task 4: complete (commits fd4c864..973fee9, review clean)
+Task 5: complete (docs cleanup + verification; 254 pytest passed)
