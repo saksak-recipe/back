@@ -1,4 +1,8 @@
+import asyncio
 from datetime import date, timedelta
+
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 
 from core.exception.exceptions import BadRequestException, IngredientNotFoundException
 from domains.ai_recipe.cache import AiRecipeCache
@@ -14,6 +18,7 @@ from domains.ingredient.schemas import (
 from domains.user.model import User
 
 SOON_WITHIN_DAYS = 3
+_AI_RECIPE_INVALIDATION_PENDING = "ingredient_ai_recipe_invalidation_pending"
 
 _STATUS_RANK: dict[IngredientStatus, int] = {
     "expired": 0,
@@ -89,9 +94,29 @@ class IngredientService:
         self.ingredient_repo = ingredient_repo
         self.list_cache = list_cache
 
-    async def _invalidate_ai_recipe_list(self) -> None:
-        if self.list_cache is not None:
-            await self.list_cache.invalidate_list(self.user.id)
+    def _schedule_ai_recipe_list_invalidation(self) -> None:
+        if self.list_cache is None:
+            return
+
+        sync_session = self.ingredient_repo.session.sync_session
+        if sync_session.info.get(_AI_RECIPE_INVALIDATION_PENDING):
+            return
+
+        loop = asyncio.get_running_loop()
+        list_cache = self.list_cache
+        user_id = self.user.id
+
+        def invalidate_after_commit(session: Session) -> None:
+            session.info.pop(_AI_RECIPE_INVALIDATION_PENDING, None)
+            loop.create_task(list_cache.invalidate_list(user_id))
+
+        event.listen(
+            sync_session,
+            "after_commit",
+            invalidate_after_commit,
+            once=True,
+        )
+        sync_session.info[_AI_RECIPE_INVALIDATION_PENDING] = True
 
     async def add_ingredients(
         self, request: AddIngredientRequest
@@ -107,7 +132,7 @@ class IngredientService:
             for name in request.ingredients
         ]
         saved = await self.ingredient_repo.add_ingredient(ingredients)
-        await self._invalidate_ai_recipe_list()
+        self._schedule_ai_recipe_list_invalidation()
         today = date.today()
         return [_to_add_response(item, today) for item in saved]
 
@@ -137,7 +162,7 @@ class IngredientService:
 
         _ensure_expiration_valid(ingredient.purchase_date, ingredient.expiration_date)
 
-        await self._invalidate_ai_recipe_list()
+        self._schedule_ai_recipe_list_invalidation()
         return _to_get_response(ingredient)
 
     async def delete_ingredient(self, ingredient_id: int) -> None:
@@ -146,7 +171,7 @@ class IngredientService:
         )
         if not deleted:
             raise IngredientNotFoundException()
-        await self._invalidate_ai_recipe_list()
+        self._schedule_ai_recipe_list_invalidation()
 
     async def delete_all_ingredients(self) -> None:
         deleted = await self.ingredient_repo.delete_all_ingredients(self.user.id)
@@ -154,4 +179,4 @@ class IngredientService:
             raise IngredientNotFoundException(
                 "삭제할 식재료가 존재하지 않거나 이미 비어있는 냉장고 입니다."
             )
-        await self._invalidate_ai_recipe_list()
+        self._schedule_ai_recipe_list_invalidation()
