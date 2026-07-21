@@ -240,10 +240,11 @@ async def test_recommend_reranks_by_urgent_owned_without_sampling(
 
     assert len(result.recipes) == TOP_K
     assert [recipe.recipe_name for recipe in result.recipes[:3]] == [
-        "긴급고득점",
-        "긴급동의어",
         "긴급저득점",
+        "긴급동의어",
+        "긴급고득점",
     ]
+    assert [recipe.score for recipe in result.recipes[:3]] == [0.1, 0.5, 0.9]
     retriever.search.assert_called_once_with(
         "parsed_ingredients: 계란, 계란, 계란",
         k=SEARCH_CANDIDATE_K,
