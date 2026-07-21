@@ -397,8 +397,23 @@ async def test_rollback_does_not_invalidate_list_cache(
         )
     ]
 
+    sync_session = ingredient_repo.session.sync_session
+    sync_session.begin()
+
     await ingredient_service.add_ingredients(AddIngredientRequest(ingredients=["양파"]))
-    ingredient_repo.session.sync_session.rollback()
+    sync_session.rollback()
     await asyncio.sleep(0)
 
     list_cache.invalidate_list.assert_not_awaited()
+
+    ingredient_repo.session.sync_session.commit()
+    await asyncio.sleep(0)
+
+    list_cache.invalidate_list.assert_not_awaited()
+
+    sync_session.begin()
+    await ingredient_service.add_ingredients(AddIngredientRequest(ingredients=["당근"]))
+    sync_session.commit()
+    await asyncio.sleep(0)
+
+    list_cache.invalidate_list.assert_awaited_once_with(user.id)
