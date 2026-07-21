@@ -44,3 +44,8 @@ class ErrorCode(StrEnum):
     # 4. 식재료 관련
     # ----------------------------------------
     INGREDIENT_NOT_FOUND = "INGREDIENT_NOT_FOUND"  # 식재료 없음
+
+    # ----------------------------------------
+    # 5. 장보기 관련
+    # ----------------------------------------
+    SHOPPING_ITEM_NOT_FOUND = "SHOPPING_ITEM_NOT_FOUND"  # 장보기 항목 없음

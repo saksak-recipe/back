@@ -22,6 +22,8 @@ from domains.recipe_detail.crawler import RecipeCrawler
 from domains.recipe_detail.service import RecipeDetailService
 from domains.saved_recipe.repository import SavedRecipeRepository
 from domains.saved_recipe.service import SavedRecipeService
+from domains.shopping.repository import ShoppingRepository
+from domains.shopping.service import ShoppingService
 
 
 _recipe_crawler = RecipeCrawler()
@@ -67,6 +69,24 @@ def get_ingredient_service(
         user=user,
         ingredient_repo=ingredient_repo,
         list_cache=AiRecipeCache(get_redis()),
+    )
+
+
+def get_shopping_repo(
+    session: AsyncSession = Depends(get_db),
+) -> ShoppingRepository:
+    return ShoppingRepository(session)
+
+
+def get_shopping_service(
+    user: User = Depends(get_current_user),
+    shopping_repo: ShoppingRepository = Depends(get_shopping_repo),
+    ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
+) -> ShoppingService:
+    return ShoppingService(
+        user=user,
+        shopping_repo=shopping_repo,
+        ingredient_repo=ingredient_repo,
     )
 
 

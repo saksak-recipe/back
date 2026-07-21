@@ -24,6 +24,7 @@ from core.database import Base, get_db  # noqa: E402
 from domains.group.model import Group, GroupInvite, GroupMember  # noqa: F401, E402
 from domains.ingredient.model import Ingredient  # noqa: F401, E402
 from domains.saved_recipe.model import SavedRecipe  # noqa: F401, E402
+from domains.shopping.model import ShoppingItem  # noqa: F401, E402
 from domains.user.model import User  # noqa: F401, E402
 from main import app  # noqa: E402
 
@@ -34,6 +35,7 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 async def db_engine():
     # SQLite는 BIGINT autoincrement를 지원하지 않아 테스트용으로 Integer로 교체
     Ingredient.__table__.c.id.type = Integer()
+    ShoppingItem.__table__.c.id.type = Integer()
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
