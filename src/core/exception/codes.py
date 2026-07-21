@@ -53,3 +53,8 @@ class ErrorCode(StrEnum):
     # 5. 장보기 관련
     # ----------------------------------------
     SHOPPING_ITEM_NOT_FOUND = "SHOPPING_ITEM_NOT_FOUND"  # 장보기 항목 없음
+
+    # ----------------------------------------
+    # 6. 알림 관련
+    # ----------------------------------------
+    NOTIFICATION_NOT_FOUND = "NOTIFICATION_NOT_FOUND"
