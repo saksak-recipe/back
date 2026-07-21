@@ -49,6 +49,7 @@ class UserService:
             email=str(request.email),
             password=hashed_password,
             nickname=request.nickname,
+            is_email_verified=False,
         )
 
         return await self.user_repo.add_user(user)

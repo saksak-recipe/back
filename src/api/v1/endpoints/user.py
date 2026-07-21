@@ -24,12 +24,8 @@ async def signup(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> SignUpResponse:
     user = await user_service.sign_up(request)
-    tokens = await auth_service.issue_tokens(user)
-    return SignUpResponse(
-        info=UserInfoResponse.from_user(user),
-        access_token=tokens.access_token,
-        refresh_token=tokens.refresh_token,
-    )
+    await auth_service.send_signup_code(user.email)
+    return SignUpResponse(email=user.email, message="verification_code_sent")
 
 
 @router.get("/me", response_model=UserInfoResponse)

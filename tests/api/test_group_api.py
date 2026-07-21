@@ -18,7 +18,12 @@ async def _signup(
         },
     )
     assert response.status_code == 201, response.text
-    token = response.json()["access_token"]
+    verified = await client.post(
+        "/api/v1/auth/email/verify",
+        json={"email": email, "code": "123456"},
+    )
+    assert verified.status_code == 200, verified.text
+    token = verified.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -30,6 +35,7 @@ async def test_create_group_requires_auth(client: AsyncClient):
 
 async def test_create_invite_accept_ingredient_merge_and_leave(
     client: AsyncClient,
+    fixed_email_code,
 ):
     owner_headers = await _signup(
         client, email="owner@example.com", nickname="owneruser"
@@ -118,7 +124,7 @@ async def test_create_invite_accept_ingredient_merge_and_leave(
     assert missing.json()["code"] == ErrorCode.GROUP_NOT_FOUND
 
 
-async def test_join_by_code(client: AsyncClient):
+async def test_join_by_code(client: AsyncClient, fixed_email_code):
     owner_headers = await _signup(
         client, email="codeowner@example.com", nickname="codeowner"
     )

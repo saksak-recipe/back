@@ -69,9 +69,8 @@ class SignUpRequest(BaseModel):
 
 
 class SignUpResponse(BaseModel):
-    info: UserInfoResponse
-    access_token: str
-    refresh_token: str
+    email: EmailStr
+    message: str = "verification_code_sent"
 
 
 class LogInRequest(BaseModel):

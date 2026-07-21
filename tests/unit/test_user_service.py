@@ -46,6 +46,7 @@ async def test_sign_up_creates_user(user_service: UserService, user_repo: AsyncM
 
     assert user.email == "new@example.com"
     assert user.nickname == "newuser"
+    assert user.is_email_verified is False
     assert user.password != "password123"
     user_repo.add_user.assert_awaited_once()
 

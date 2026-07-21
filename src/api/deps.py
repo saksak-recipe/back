@@ -1,10 +1,13 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import settings
 from core.database import get_db
 from core.redis import get_redis
 from core.security import REFRESH_TOKEN_EXPIRE_SECONDS, get_access_token
+from domains.auth.email_service import EmailService
 from domains.auth.refresh_store import RefreshTokenStore
+from domains.auth.verification_store import VerificationCodeStore
 from domains.ai_recipe.agent import AiRecipeAgent
 from domains.ai_recipe.cache import AiRecipeCache
 from domains.ai_recipe.service import AiRecipeService
@@ -44,11 +47,39 @@ def get_refresh_store() -> RefreshTokenStore:
     return RefreshTokenStore(get_redis(), ttl_seconds=REFRESH_TOKEN_EXPIRE_SECONDS)
 
 
+def get_verification_store() -> VerificationCodeStore:
+    return VerificationCodeStore(get_redis())
+
+
+def get_email_service() -> EmailService:
+    return EmailService(
+        backend=settings.EMAIL_BACKEND,
+        smtp_host=settings.SMTP_HOST,
+        smtp_port=settings.SMTP_PORT,
+        smtp_user=settings.SMTP_USER,
+        smtp_password=(
+            settings.SMTP_PASSWORD.get_secret_value()
+            if settings.SMTP_PASSWORD is not None
+            else None
+        ),
+        smtp_from_email=settings.SMTP_FROM_EMAIL,
+        smtp_from_name=settings.SMTP_FROM_NAME,
+        smtp_use_tls=settings.SMTP_USE_TLS,
+    )
+
+
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repo),
     refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+    verification_store: VerificationCodeStore = Depends(get_verification_store),
+    email_service: EmailService = Depends(get_email_service),
 ) -> AuthService:
-    return AuthService(user_repo=user_repo, refresh_store=refresh_store)
+    return AuthService(
+        user_repo=user_repo,
+        refresh_store=refresh_store,
+        verification_store=verification_store,
+        email_service=email_service,
+    )
 
 
 async def get_current_user(
