@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 
 import openai
@@ -13,15 +14,22 @@ from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,
     AiRecipeDetailResponse,
+    AiRecipeListCacheRecord,
     AiRecipeRecommendation,
     AiRecipeRecommendationResponse,
 )
 from domains.ingredient.repository import IngredientRepository
+from domains.ingredient_matching.matching import normalize_name
 from domains.ingredient_matching.urgency import urgent_names
 from domains.rag.mapper import classify_ingredients
 from domains.user.model import User
 
 AGENT_TIMEOUT_SECONDS = 25
+
+
+def ingredients_hash(names: list[str]) -> str:
+    normalized = ",".join(sorted(normalize_name(name) for name in names))
+    return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
 class AiRecipeService:
@@ -37,20 +45,27 @@ class AiRecipeService:
         self.agent = agent
         self.cache = cache
 
-    async def recommend(self) -> AiRecipeRecommendationResponse:
+    async def recommend(self, refresh: bool = False) -> AiRecipeRecommendationResponse:
         ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
         names = [item.ingredient_name for item in ingredients]
         if not names:
             return AiRecipeRecommendationResponse(ingredients_used=[], recipes=[])
+
+        digest = ingredients_hash(names)
+        if not refresh:
+            cached = await self.cache.get_list(self.user.id)
+            if cached is not None and cached.ingredients_hash == digest:
+                return AiRecipeRecommendationResponse(
+                    ingredients_used=cached.ingredients_used,
+                    recipes=cached.recipes,
+                )
 
         candidates = await self._generate_list(names, urgent_names(ingredients))
 
         recipes: list[AiRecipeRecommendation] = []
         for candidate in candidates:
             recipe_id = str(uuid.uuid4())
-            owned, missing = classify_ingredients(
-                candidate.recipe_ingredients, names
-            )
+            owned, missing = classify_ingredients(candidate.recipe_ingredients, names)
             record = AiRecipeCacheRecord(
                 recipe_id=recipe_id,
                 recipe_name=candidate.recipe_name,
@@ -71,10 +86,19 @@ class AiRecipeService:
                     time=candidate.time,
                 )
             )
-        return AiRecipeRecommendationResponse(
+        response = AiRecipeRecommendationResponse(
             ingredients_used=names,
             recipes=recipes,
         )
+        await self.cache.set_list(
+            self.user.id,
+            AiRecipeListCacheRecord(
+                ingredients_hash=digest,
+                ingredients_used=names,
+                recipes=response.recipes,
+            ),
+        )
+        return response
 
     async def _generate_list(
         self,

@@ -63,7 +63,11 @@ def get_ingredient_service(
     user: User = Depends(get_current_user),
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
 ) -> IngredientService:
-    return IngredientService(user=user, ingredient_repo=ingredient_repo)
+    return IngredientService(
+        user=user,
+        ingredient_repo=ingredient_repo,
+        list_cache=AiRecipeCache(get_redis()),
+    )
 
 
 def get_ai_recipe_service(

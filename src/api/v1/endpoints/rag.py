@@ -53,9 +53,10 @@ async def recommend_recipes(
     ),
 )
 async def ai_recommend_recipes(
+    refresh: bool = False,
     service: AiRecipeService = Depends(get_ai_recipe_service),
 ) -> AiRecipeRecommendationResponse:
-    return await service.recommend()
+    return await service.recommend(refresh=refresh)
 
 
 @router.get(

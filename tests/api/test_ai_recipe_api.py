@@ -39,7 +39,7 @@ async def test_ai_recommendations_empty(
 
         assert response.status_code == 200
         assert response.json()["recipes"] == []
-        mock.recommend.assert_awaited_once_with()
+        mock.recommend.assert_awaited_once_with(refresh=False)
     finally:
         app.dependency_overrides.pop(get_ai_recipe_service, None)
 
@@ -74,7 +74,31 @@ async def test_ai_recommendations_success(
         body = response.json()
         assert body["recipes"][0]["source"] == "ai"
         assert body["recipes"][0]["recipe_id"] == "rid"
-        mock.recommend.assert_awaited_once_with()
+        mock.recommend.assert_awaited_once_with(refresh=False)
+    finally:
+        app.dependency_overrides.pop(get_ai_recipe_service, None)
+
+
+async def test_ai_recommendations_passes_refresh(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    mock = MagicMock()
+    mock.recommend = AsyncMock(
+        return_value=AiRecipeRecommendationResponse(
+            ingredients_used=[],
+            recipes=[],
+        )
+    )
+    app.dependency_overrides[get_ai_recipe_service] = lambda: mock
+    try:
+        response = await client.get(
+            "/api/v1/recipes/ai/recommendations",
+            headers=auth_headers,
+            params={"refresh": "true"},
+        )
+
+        assert response.status_code == 200
+        mock.recommend.assert_awaited_once_with(refresh=True)
     finally:
         app.dependency_overrides.pop(get_ai_recipe_service, None)
 
@@ -116,9 +140,7 @@ async def test_ai_detail_502(client: AsyncClient, auth_headers: dict[str, str]):
         app.dependency_overrides.pop(get_ai_recipe_service, None)
 
 
-async def test_ai_detail_success(
-    client: AsyncClient, auth_headers: dict[str, str]
-):
+async def test_ai_detail_success(client: AsyncClient, auth_headers: dict[str, str]):
     mock = MagicMock()
     mock.get_detail = AsyncMock(
         return_value=AiRecipeDetailResponse(

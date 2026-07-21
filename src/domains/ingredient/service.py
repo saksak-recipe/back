@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from core.exception.exceptions import BadRequestException, IngredientNotFoundException
+from domains.ai_recipe.cache import AiRecipeCache
 from domains.ingredient.model import Ingredient
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.schemas import (
@@ -22,9 +23,7 @@ _STATUS_RANK: dict[IngredientStatus, int] = {
 }
 
 
-def _ensure_expiration_valid(
-    purchase_date: date, expiration_date: date | None
-) -> None:
+def _ensure_expiration_valid(purchase_date: date, expiration_date: date | None) -> None:
     if expiration_date is not None and expiration_date < purchase_date:
         raise BadRequestException(detail="유통기한은 구매일 이후여야 합니다.")
 
@@ -80,9 +79,19 @@ def _list_sort_key(ingredient: Ingredient, today: date) -> tuple:
 
 
 class IngredientService:
-    def __init__(self, user: User, ingredient_repo: IngredientRepository):
+    def __init__(
+        self,
+        user: User,
+        ingredient_repo: IngredientRepository,
+        list_cache: AiRecipeCache | None = None,
+    ):
         self.user = user
         self.ingredient_repo = ingredient_repo
+        self.list_cache = list_cache
+
+    async def _invalidate_ai_recipe_list(self) -> None:
+        if self.list_cache is not None:
+            await self.list_cache.invalidate_list(self.user.id)
 
     async def add_ingredients(
         self, request: AddIngredientRequest
@@ -98,15 +107,14 @@ class IngredientService:
             for name in request.ingredients
         ]
         saved = await self.ingredient_repo.add_ingredient(ingredients)
+        await self._invalidate_ai_recipe_list()
         today = date.today()
         return [_to_add_response(item, today) for item in saved]
 
     async def get_ingredients(self) -> list[GetIngredientResponse]:
         ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
         today = date.today()
-        sorted_items = sorted(
-            ingredients, key=lambda item: _list_sort_key(item, today)
-        )
+        sorted_items = sorted(ingredients, key=lambda item: _list_sort_key(item, today))
         return [_to_get_response(item, today) for item in sorted_items]
 
     async def update_ingredient(
@@ -129,6 +137,7 @@ class IngredientService:
 
         _ensure_expiration_valid(ingredient.purchase_date, ingredient.expiration_date)
 
+        await self._invalidate_ai_recipe_list()
         return _to_get_response(ingredient)
 
     async def delete_ingredient(self, ingredient_id: int) -> None:
@@ -137,6 +146,7 @@ class IngredientService:
         )
         if not deleted:
             raise IngredientNotFoundException()
+        await self._invalidate_ai_recipe_list()
 
     async def delete_all_ingredients(self) -> None:
         deleted = await self.ingredient_repo.delete_all_ingredients(self.user.id)
@@ -144,3 +154,4 @@ class IngredientService:
             raise IngredientNotFoundException(
                 "삭제할 식재료가 존재하지 않거나 이미 비어있는 냉장고 입니다."
             )
+        await self._invalidate_ai_recipe_list()

@@ -1,3 +1,4 @@
+import hashlib
 import time
 from datetime import date, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -12,9 +13,11 @@ from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,
     AiRecipeIngredient,
+    AiRecipeListCacheRecord,
+    AiRecipeRecommendation,
     AiRecipeStep,
 )
-from domains.ai_recipe.service import AiRecipeService
+from domains.ai_recipe.service import AiRecipeService, ingredients_hash
 
 
 @pytest.fixture
@@ -24,14 +27,92 @@ def user():
     return mocked_user
 
 
+def test_ingredients_hash_is_sorted_and_normalized():
+    expected = hashlib.sha256("egg,계란".encode()).hexdigest()[:16]
+
+    assert ingredients_hash([" 계 란 ", "EGG"]) == expected
+    assert ingredients_hash(["egg", "계란"]) == expected
+
+
+async def test_recommend_returns_matching_list_cache_without_agent(user):
+    repo = AsyncMock()
+    item = MagicMock(ingredient_name="계란")
+    repo.get_ingredients.return_value = [item]
+    cached_recipe = AiRecipeRecommendation(
+        recipe_id="rid",
+        recipe_name="계란찜",
+        owned_ingredients=["계란"],
+    )
+    cache = AsyncMock()
+    cache.get_list.return_value = AiRecipeListCacheRecord(
+        ingredients_hash=ingredients_hash(["계란"]),
+        ingredients_used=["계란"],
+        recipes=[cached_recipe],
+    )
+    agent = MagicMock()
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
+
+    result = await service.recommend()
+
+    assert result.recipes == [cached_recipe]
+    agent.run_list.assert_not_called()
+    cache.set_list.assert_not_awaited()
+
+
+async def test_recommend_refresh_bypasses_matching_list_cache(user):
+    repo = AsyncMock()
+    item = MagicMock(ingredient_name="계란", expiration_date=None)
+    repo.get_ingredients.return_value = [item]
+    cache = AsyncMock()
+    cache.get_list.return_value = AiRecipeListCacheRecord(
+        ingredients_hash=ingredients_hash(["계란"]),
+        ingredients_used=["계란"],
+        recipes=[],
+    )
+    agent = MagicMock()
+    agent.run_list.return_value = [
+        AiRecipeCandidate(recipe_name=f"요리{i}", recipe_ingredients=["계란"])
+        for i in range(5)
+    ]
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
+
+    result = await service.recommend(refresh=True)
+
+    assert len(result.recipes) == 5
+    cache.get_list.assert_not_awaited()
+    agent.run_list.assert_called_once_with(["계란"], [])
+    cache.set_list.assert_awaited_once()
+
+
+async def test_recommend_regenerates_when_ingredients_hash_changes(user):
+    repo = AsyncMock()
+    item = MagicMock(ingredient_name="계란", expiration_date=None)
+    repo.get_ingredients.return_value = [item]
+    cache = AsyncMock()
+    cache.get_list.return_value = AiRecipeListCacheRecord(
+        ingredients_hash=ingredients_hash(["우유"]),
+        ingredients_used=["우유"],
+        recipes=[],
+    )
+    agent = MagicMock()
+    agent.run_list.return_value = [
+        AiRecipeCandidate(recipe_name=f"요리{i}", recipe_ingredients=["계란"])
+        for i in range(5)
+    ]
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
+
+    await service.recommend()
+
+    agent.run_list.assert_called_once_with(["계란"], [])
+    cache.set_list.assert_awaited_once()
+
+
 async def test_recommend_empty_skips_agent(user):
     repo = AsyncMock()
     repo.get_ingredients.return_value = []
     agent = MagicMock()
     cache = AsyncMock()
-    service = AiRecipeService(
-        user=user, ingredient_repo=repo, agent=agent, cache=cache
-    )
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
 
     result = await service.recommend()
 
@@ -58,9 +139,7 @@ async def test_recommend_caches_five(user):
         for i in range(5)
     ]
     cache = AsyncMock()
-    service = AiRecipeService(
-        user=user, ingredient_repo=repo, agent=agent, cache=cache
-    )
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
 
     result = await service.recommend()
 
@@ -112,9 +191,7 @@ async def test_recommend_maps_agent_failure(user, agent_error):
     agent = MagicMock()
     agent.run_list.side_effect = agent_error
     cache = AsyncMock()
-    service = AiRecipeService(
-        user=user, ingredient_repo=repo, agent=agent, cache=cache
-    )
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
 
     with pytest.raises(
         ExternalServiceException, match="AI 레시피 생성에 실패했습니다."
@@ -205,9 +282,7 @@ async def test_detail_expands_when_missing(user):
     item = MagicMock()
     item.ingredient_name = "계란"
     repo.get_ingredients.return_value = [item]
-    service = AiRecipeService(
-        user=user, ingredient_repo=repo, agent=agent, cache=cache
-    )
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
 
     result = await service.get_detail("rid")
 
@@ -227,9 +302,7 @@ async def test_detail_maps_agent_failure(user):
     agent.run_detail.side_effect = AgentFailedError("fail")
     repo = AsyncMock()
     repo.get_ingredients.return_value = []
-    service = AiRecipeService(
-        user=user, ingredient_repo=repo, agent=agent, cache=cache
-    )
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
 
     with pytest.raises(
         ExternalServiceException, match="AI 레시피 상세 생성에 실패했습니다."
@@ -249,9 +322,7 @@ async def test_detail_maps_agent_timeout(user, monkeypatch):
     agent.run_detail.side_effect = lambda _names, _record: time.sleep(0.05)
     repo = AsyncMock()
     repo.get_ingredients.return_value = []
-    service = AiRecipeService(
-        user=user, ingredient_repo=repo, agent=agent, cache=cache
-    )
+    service = AiRecipeService(user=user, ingredient_repo=repo, agent=agent, cache=cache)
 
     with pytest.raises(
         ExternalServiceException, match="AI 레시피 상세 생성에 실패했습니다."
