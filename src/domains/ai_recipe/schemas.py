@@ -11,7 +11,7 @@ class AiRecipeCandidate(BaseModel):
 
 
 class AiRecipeCandidateList(BaseModel):
-    recipes: list[AiRecipeCandidate] = Field(min_length=5, max_length=5)
+    recipes: list[AiRecipeCandidate]
 
 
 class AiRecipeIngredient(BaseModel):

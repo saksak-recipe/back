@@ -1,6 +1,3 @@
-import pytest
-from pydantic import ValidationError
-
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeCandidate,
@@ -44,13 +41,10 @@ def test_cache_record_optional_detail():
     assert record.tips is None
 
 
-def test_candidate_list_requires_exactly_five_recipes():
+def test_candidate_list_accepts_any_length_at_schema_level():
+    """Pydantic does not enforce TOP_K; AiRecipeAgent.run_list rejects wrong counts."""
     recipe = AiRecipeCandidate(recipe_name="계란찜")
 
-    with pytest.raises(ValidationError):
-        AiRecipeCandidateList(recipes=[recipe] * 4)
-
+    assert len(AiRecipeCandidateList(recipes=[recipe] * 4).recipes) == 4
     assert len(AiRecipeCandidateList(recipes=[recipe] * 5).recipes) == 5
-
-    with pytest.raises(ValidationError):
-        AiRecipeCandidateList(recipes=[recipe] * 6)
+    assert len(AiRecipeCandidateList(recipes=[recipe] * 6).recipes) == 6
