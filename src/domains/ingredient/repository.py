@@ -36,6 +36,21 @@ class IngredientRepository:
                 detail="식재료 목록 조회 중 DB 오류가 발생했습니다."
             ) from e
 
+    async def get_by_id(
+        self, ingredient_id: int, user_id: uuid.UUID
+    ) -> Ingredient | None:
+        try:
+            stmt = select(Ingredient).where(
+                Ingredient.id == ingredient_id,
+                Ingredient.user_id == user_id,
+            )
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="식재료 조회 중 DB 오류가 발생했습니다."
+            ) from e
+
     async def delete_ingredient(self, ingredient_id: int, user_id: uuid.UUID) -> bool:
         try:
             stmt = delete(Ingredient).where(

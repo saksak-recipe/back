@@ -1,6 +1,5 @@
-from datetime import date
+from datetime import date, timedelta
 
-import pytest
 from httpx import AsyncClient
 
 from core.exception.codes import ErrorCode
@@ -31,6 +30,7 @@ async def test_add_and_list_ingredients(client: AsyncClient, auth_headers: dict[
     assert len(added) == 2
     assert added[0]["ingredient_name"] == "양파"
     assert added[1]["ingredient_name"] == "당근"
+    assert added[0]["expiration_date"] is None
 
     list_response = await client.get("/api/v1/ingredients", headers=auth_headers)
 
@@ -38,6 +38,131 @@ async def test_add_and_list_ingredients(client: AsyncClient, auth_headers: dict[
     ingredients = list_response.json()
     assert len(ingredients) == 2
     assert {item["ingredient_name"] for item in ingredients} == {"양파", "당근"}
+
+
+async def test_add_ingredients_with_expiration_date(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    purchase = date.today()
+    expiration = purchase + timedelta(days=7)
+
+    add_response = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={
+            "ingredients": ["우유"],
+            "purchase_date": purchase.isoformat(),
+            "expiration_date": expiration.isoformat(),
+        },
+    )
+
+    assert add_response.status_code == 201
+    body = add_response.json()
+    assert body[0]["expiration_date"] == expiration.isoformat()
+
+
+async def test_add_ingredients_rejects_expiration_before_purchase(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    purchase = date.today()
+    expiration = purchase - timedelta(days=1)
+
+    response = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={
+            "ingredients": ["우유"],
+            "purchase_date": purchase.isoformat(),
+            "expiration_date": expiration.isoformat(),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == ErrorCode.BAD_REQUEST
+    assert response.json()["detail"] == "유통기한은 구매일 이후여야 합니다."
+
+
+async def test_update_ingredient(client: AsyncClient, auth_headers: dict[str, str]):
+    add_response = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={"ingredients": ["양파"]},
+    )
+    ingredient_id = add_response.json()[0]["id"]
+    expiration = (date.today() + timedelta(days=3)).isoformat()
+
+    patch_response = await client.patch(
+        f"/api/v1/ingredients/{ingredient_id}",
+        headers=auth_headers,
+        json={
+            "ingredient_name": "빨간양파",
+            "expiration_date": expiration,
+        },
+    )
+
+    assert patch_response.status_code == 200
+    body = patch_response.json()
+    assert body["ingredient_name"] == "빨간양파"
+    assert body["expiration_date"] == expiration
+
+
+async def test_update_ingredient_clears_expiration(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    purchase = date.today()
+    expiration = purchase + timedelta(days=5)
+    add_response = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={
+            "ingredients": ["두부"],
+            "purchase_date": purchase.isoformat(),
+            "expiration_date": expiration.isoformat(),
+        },
+    )
+    ingredient_id = add_response.json()[0]["id"]
+
+    patch_response = await client.patch(
+        f"/api/v1/ingredients/{ingredient_id}",
+        headers=auth_headers,
+        json={"expiration_date": None},
+    )
+
+    assert patch_response.status_code == 200
+    assert patch_response.json()["expiration_date"] is None
+
+
+async def test_update_ingredient_empty_body_returns_bad_request(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    add_response = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={"ingredients": ["양파"]},
+    )
+    ingredient_id = add_response.json()[0]["id"]
+
+    response = await client.patch(
+        f"/api/v1/ingredients/{ingredient_id}",
+        headers=auth_headers,
+        json={},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == ErrorCode.BAD_REQUEST
+
+
+async def test_update_ingredient_returns_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    response = await client.patch(
+        "/api/v1/ingredients/99999",
+        headers=auth_headers,
+        json={"ingredient_name": "없는재료"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == ErrorCode.INGREDIENT_NOT_FOUND
 
 
 async def test_delete_ingredient(client: AsyncClient, auth_headers: dict[str, str]):
@@ -72,7 +197,7 @@ async def test_delete_ingredient_returns_not_found(
 
 
 async def test_delete_all_ingredients_requires_auth(client: AsyncClient):
-    response = await client.get("/api/v1/ingredients/all-delete")
+    response = await client.delete("/api/v1/ingredients")
 
     assert response.status_code == 401
     assert response.json()["code"] == ErrorCode.UNAUTHORIZED
@@ -87,8 +212,8 @@ async def test_delete_all_ingredients_clears_all(
         json={"ingredients": ["양파", "당근", "대파"]},
     )
 
-    delete_response = await client.get(
-        "/api/v1/ingredients/all-delete",
+    delete_response = await client.delete(
+        "/api/v1/ingredients",
         headers=auth_headers,
     )
 
@@ -101,8 +226,8 @@ async def test_delete_all_ingredients_clears_all(
 async def test_delete_all_ingredients_returns_not_found_when_empty(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    response = await client.get(
-        "/api/v1/ingredients/all-delete",
+    response = await client.delete(
+        "/api/v1/ingredients",
         headers=auth_headers,
     )
 

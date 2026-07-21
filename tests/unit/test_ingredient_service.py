@@ -1,12 +1,12 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
 import uuid6
 
-from core.exception.exceptions import IngredientNotFoundException
+from core.exception.exceptions import BadRequestException, IngredientNotFoundException
 from domains.ingredient.model import Ingredient
-from domains.ingredient.schemas import AddIngredientRequest
+from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.service import IngredientService
 from domains.user.model import User
 
@@ -59,6 +59,49 @@ async def test_add_ingredients_returns_saved_items(
     assert result[1].ingredient_name == "당근"
 
 
+async def test_add_ingredients_sets_expiration_date(
+    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+):
+    purchase = date.today()
+    expiration = purchase + timedelta(days=5)
+    saved = [
+        Ingredient(
+            id=1,
+            user_id=user.id,
+            ingredient_name="우유",
+            purchase_date=purchase,
+            expiration_date=expiration,
+        )
+    ]
+    ingredient_repo.add_ingredient.return_value = saved
+
+    result = await ingredient_service.add_ingredients(
+        AddIngredientRequest(
+            ingredients=["우유"],
+            purchase_date=purchase,
+            expiration_date=expiration,
+        )
+    )
+
+    assert result[0].expiration_date == expiration
+    created = ingredient_repo.add_ingredient.await_args.args[0]
+    assert created[0].expiration_date == expiration
+
+
+async def test_add_ingredients_rejects_invalid_expiration(
+    ingredient_service: IngredientService,
+):
+    purchase = date.today()
+    with pytest.raises(BadRequestException):
+        await ingredient_service.add_ingredients(
+            AddIngredientRequest(
+                ingredients=["우유"],
+                purchase_date=purchase,
+                expiration_date=purchase - timedelta(days=1),
+            )
+        )
+
+
 async def test_get_ingredients_returns_user_items(
     ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
 ):
@@ -75,6 +118,50 @@ async def test_get_ingredients_returns_user_items(
 
     assert len(result) == 1
     ingredient_repo.get_ingredients.assert_awaited_once_with(user.id)
+
+
+async def test_update_ingredient_partial_fields(
+    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+):
+    existing = Ingredient(
+        id=1,
+        user_id=user.id,
+        ingredient_name="양파",
+        purchase_date=date.today(),
+        expiration_date=None,
+    )
+    ingredient_repo.get_by_id.return_value = existing
+    expiration = date.today() + timedelta(days=2)
+
+    result = await ingredient_service.update_ingredient(
+        1,
+        UpdateIngredientRequest(
+            ingredient_name="빨간양파",
+            expiration_date=expiration,
+        ),
+    )
+
+    assert result.ingredient_name == "빨간양파"
+    assert result.expiration_date == expiration
+    ingredient_repo.get_by_id.assert_awaited_once_with(1, user.id)
+
+
+async def test_update_ingredient_empty_patch_raises(
+    ingredient_service: IngredientService,
+):
+    with pytest.raises(BadRequestException):
+        await ingredient_service.update_ingredient(1, UpdateIngredientRequest())
+
+
+async def test_update_ingredient_raises_when_not_found(
+    ingredient_service: IngredientService, ingredient_repo: AsyncMock
+):
+    ingredient_repo.get_by_id.return_value = None
+
+    with pytest.raises(IngredientNotFoundException):
+        await ingredient_service.update_ingredient(
+            999, UpdateIngredientRequest(ingredient_name="없는재료")
+        )
 
 
 async def test_delete_ingredient_raises_when_not_found(

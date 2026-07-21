@@ -1,12 +1,17 @@
 from fastapi import APIRouter, status, Depends
 
 from api.deps import get_ingredient_service
-from core.exception.exceptions import UnAuthorizedException, IngredientNotFoundException
+from core.exception.exceptions import (
+    BadRequestException,
+    UnAuthorizedException,
+    IngredientNotFoundException,
+)
 from core.exception.openapi import create_error_response
 from domains.ingredient.schemas import (
     AddIngredientResponse,
     AddIngredientRequest,
     GetIngredientResponse,
+    UpdateIngredientRequest,
 )
 from domains.ingredient.service import IngredientService
 
@@ -17,7 +22,7 @@ router = APIRouter(prefix="/ingredients", tags=["ingredients"])
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=list[AddIngredientResponse],
-    responses=create_error_response(UnAuthorizedException),
+    responses=create_error_response(UnAuthorizedException, BadRequestException),
 )
 async def add_ingredients(
     request: AddIngredientRequest,
@@ -38,6 +43,38 @@ async def list_ingredients(
     return await service.get_ingredients()
 
 
+@router.patch(
+    "/{ingredient_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=GetIngredientResponse,
+    responses=create_error_response(
+        UnAuthorizedException,
+        BadRequestException,
+        IngredientNotFoundException,
+    ),
+)
+async def update_ingredient(
+    ingredient_id: int,
+    request: UpdateIngredientRequest,
+    service: IngredientService = Depends(get_ingredient_service),
+) -> GetIngredientResponse:
+    return await service.update_ingredient(ingredient_id, request)
+
+
+@router.delete(
+    "",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=create_error_response(
+        UnAuthorizedException,
+        IngredientNotFoundException,
+    ),
+)
+async def delete_all_ingredients(
+    service: IngredientService = Depends(get_ingredient_service),
+) -> None:
+    await service.delete_all_ingredients()
+
+
 @router.delete(
     "/{ingredient_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -51,16 +88,3 @@ async def delete_ingredient(
     service: IngredientService = Depends(get_ingredient_service),
 ) -> None:
     await service.delete_ingredient(ingredient_id)
-
-@router.get(
-    "/all-delete",
-    status_code=status.HTTP_204_NO_CONTENT,
-    responses=create_error_response(
-        UnAuthorizedException,
-        IngredientNotFoundException,
-    )
-)
-async def delete_all_ingredient(
-    service: IngredientService = Depends(get_ingredient_service),
-) -> None:
-    await service.delete_all_ingredients()
