@@ -92,6 +92,7 @@ class AuthService:
 
         existing = await self.user_repo.get_user_by_kakao_id(kakao_id)
         if existing:
+            existing = await self._restore_if_within_grace(existing)
             tokens = await self.issue_tokens(existing)
             return self._to_kakao_auth_response(existing, tokens)
 

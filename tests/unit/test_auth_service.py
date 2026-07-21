@@ -254,6 +254,64 @@ async def test_complete_kakao_signup_creates_user(
     refresh_store.save.assert_awaited_once()
 
 
+async def test_complete_kakao_signup_restores_existing_user_within_grace(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+):
+    from domains.auth.schemas import KakaoCompleteRequest
+
+    user = User(
+        id=uuid6.uuid7(),
+        email="k@example.com",
+        password=None,
+        kakao_id="99",
+        nickname="k",
+    )
+    user.deleted_at = datetime.now(timezone.utc) - timedelta(days=1)
+    user_repo.get_user_by_kakao_id.return_value = user
+    user_repo.save.side_effect = lambda saved_user: saved_user
+
+    response = await auth_service.complete_kakao_signup(
+        KakaoCompleteRequest(
+            signup_token=security.create_kakao_signup_token("99"),
+            nickname="ignored",
+            email="ignored@example.com",
+        )
+    )
+
+    assert user.deleted_at is None
+    assert response.status == "authenticated"
+    user_repo.save.assert_awaited_once_with(user)
+
+
+async def test_complete_kakao_signup_rejects_expired_existing_user_generically(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+):
+    from domains.auth.schemas import KakaoCompleteRequest
+
+    user = User(
+        id=uuid6.uuid7(),
+        email="k@example.com",
+        password=None,
+        kakao_id="99",
+        nickname="k",
+    )
+    user.deleted_at = datetime.now(timezone.utc) - timedelta(days=8)
+    user_repo.get_user_by_kakao_id.return_value = user
+
+    with pytest.raises(UnAuthorizedException) as exc_info:
+        await auth_service.complete_kakao_signup(
+            KakaoCompleteRequest(
+                signup_token=security.create_kakao_signup_token("99"),
+                nickname="ignored",
+                email="ignored@example.com",
+            )
+        )
+
+    assert exc_info.value.detail == "이메일 또는 비밀번호가 올바르지 않습니다."
+
+
 async def test_complete_kakao_signup_rejects_email_conflict(
     auth_service: AuthService, user_repo: AsyncMock
 ):

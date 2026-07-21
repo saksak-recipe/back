@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 import uuid6
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core import security
 from core.exception.codes import ErrorCode
@@ -11,7 +13,9 @@ from core.exception.exceptions import (
     ConflictException,
     UnAuthorizedException,
 )
+from domains.ingredient.model import Ingredient
 from domains.user.model import User
+from domains.user.repository import UserRepository
 from domains.user.schemas import SignUpRequest, UpdateMeRequest, UpdatePasswordRequest
 from domains.user.service import UserService
 
@@ -229,3 +233,34 @@ async def test_purge_deletes_expired_only(
 
     assert deleted == 1
     user_repo.delete_user.assert_awaited_once_with(old)
+
+
+async def test_purge_hard_deletes_user_and_cascades_ingredients(
+    db_session: AsyncSession,
+):
+    now = datetime.now(timezone.utc)
+    user = User(
+        email="expired@example.com",
+        password="h",
+        nickname="expired",
+        deleted_at=now - timedelta(days=8),
+    )
+    ingredient = Ingredient(
+        user=user,
+        ingredient_name="양파",
+        purchase_date=now.date(),
+    )
+    db_session.add_all([user, ingredient])
+    await db_session.flush()
+    user_id = user.id
+    ingredient_id = ingredient.id
+
+    service = UserService(user_repo=UserRepository(db_session))
+    deleted = await service.purge_expired_withdrawn_users(now=now)
+
+    assert deleted == 1
+    assert await db_session.get(User, user_id) is None
+    result = await db_session.execute(
+        select(Ingredient).where(Ingredient.id == ingredient_id)
+    )
+    assert result.scalar_one_or_none() is None
