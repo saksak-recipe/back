@@ -3,6 +3,7 @@ import json
 import secrets
 
 from redis.asyncio import Redis
+from redis.exceptions import WatchError
 
 from core.exception.codes import ErrorCode
 from core.exception.exceptions import BadRequestException, ExternalServiceException
@@ -36,7 +37,13 @@ class VerificationCodeStore:
         email = email.lower()
         cooldown_key = self._cooldown_key(purpose, email)
         try:
-            if await self._redis.exists(cooldown_key):
+            cooldown_set = await self._redis.set(
+                cooldown_key,
+                "1",
+                ex=COOLDOWN_SECONDS,
+                nx=True,
+            )
+            if not cooldown_set:
                 raise BadRequestException(
                     code=ErrorCode.VERIFICATION_COOLDOWN,
                     detail="인증 코드 재발송은 잠시 후 다시 시도해 주세요.",
@@ -45,10 +52,11 @@ class VerificationCodeStore:
             payload = json.dumps(
                 {"hash": hash_email_code(code), "attempts": 0}
             )
-            pipe = self._redis.pipeline()
-            pipe.set(self._code_key(purpose, email), payload, ex=CODE_TTL_SECONDS)
-            pipe.set(cooldown_key, "1", ex=COOLDOWN_SECONDS)
-            await pipe.execute()
+            await self._redis.set(
+                self._code_key(purpose, email),
+                payload,
+                ex=CODE_TTL_SECONDS,
+            )
             return code
         except BadRequestException:
             raise
@@ -59,27 +67,51 @@ class VerificationCodeStore:
         email = email.lower()
         key = self._code_key(purpose, email)
         try:
-            raw = await self._redis.get(key)
-            if raw is None:
-                raise BadRequestException(
-                    code=ErrorCode.INVALID_VERIFICATION_CODE,
-                    detail="인증 코드가 올바르지 않거나 만료되었습니다.",
-                )
-            data = json.loads(raw)
-            if data["hash"] != hash_email_code(code):
-                attempts = int(data.get("attempts", 0)) + 1
-                if attempts >= MAX_ATTEMPTS:
-                    await self._redis.delete(key)
-                else:
-                    data["attempts"] = attempts
-                    ttl = await self._redis.ttl(key)
-                    ex = ttl if ttl and ttl > 0 else CODE_TTL_SECONDS
-                    await self._redis.set(key, json.dumps(data), ex=ex)
-                raise BadRequestException(
-                    code=ErrorCode.INVALID_VERIFICATION_CODE,
-                    detail="인증 코드가 올바르지 않거나 만료되었습니다.",
-                )
-            await self._redis.delete(key)
+            while True:
+                try:
+                    async with self._redis.pipeline() as pipe:
+                        await pipe.watch(key)
+                        raw = await pipe.get(key)
+                        if raw is None:
+                            raise BadRequestException(
+                                code=ErrorCode.INVALID_VERIFICATION_CODE,
+                                detail=(
+                                    "인증 코드가 올바르지 않거나 만료되었습니다."
+                                ),
+                            )
+
+                        data = json.loads(raw)
+                        if data["hash"] == hash_email_code(code):
+                            pipe.multi()
+                            pipe.delete(key)
+                            await pipe.execute()
+                            return
+
+                        attempts = int(data.get("attempts", 0)) + 1
+                        if attempts >= MAX_ATTEMPTS:
+                            pipe.multi()
+                            pipe.delete(key)
+                        else:
+                            ttl = await pipe.ttl(key)
+                            if ttl <= 0:
+                                raise BadRequestException(
+                                    code=ErrorCode.INVALID_VERIFICATION_CODE,
+                                    detail=(
+                                        "인증 코드가 올바르지 않거나 "
+                                        "만료되었습니다."
+                                    ),
+                                )
+                            data["attempts"] = attempts
+                            pipe.multi()
+                            pipe.set(key, json.dumps(data), ex=ttl)
+
+                        await pipe.execute()
+                        raise BadRequestException(
+                            code=ErrorCode.INVALID_VERIFICATION_CODE,
+                            detail="인증 코드가 올바르지 않거나 만료되었습니다.",
+                        )
+                except WatchError:
+                    continue
         except BadRequestException:
             raise
         except Exception as exc:
