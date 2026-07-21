@@ -2,6 +2,7 @@ import os
 from collections.abc import AsyncGenerator
 from datetime import date
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Integer
@@ -15,6 +16,7 @@ os.environ.setdefault("DB_NAME", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("EMAIL_BACKEND", "console")
 
 import fakeredis.aioredis
 
@@ -29,6 +31,14 @@ from domains.user.model import User  # noqa: F401, E402
 from main import app  # noqa: E402
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest.fixture
+def fixed_email_code(monkeypatch):
+    monkeypatch.setattr(
+        "domains.auth.verification_store.generate_email_code",
+        lambda: "123456",
+    )
 
 
 @pytest_asyncio.fixture
@@ -85,6 +95,7 @@ async def test_user(db_session: AsyncSession) -> User:
         email="test@example.com",
         password=security.hash_password("password123"),
         nickname="testuser",
+        is_email_verified=True,
     )
     db_session.add(user)
     await db_session.flush()

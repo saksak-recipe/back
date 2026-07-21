@@ -42,6 +42,7 @@ async def test_set_password_for_kakao_user_then_email_login(client, db_session):
         password=None,
         kakao_id="k1",
         nickname="kakao1",
+        is_email_verified=True,
     )
     db_session.add(user)
     await db_session.flush()
