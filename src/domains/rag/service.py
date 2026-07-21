@@ -62,10 +62,9 @@ class RagService:
         if urgent:
             candidates.sort(
                 key=lambda recipe: (
-                    count_urgent_owned(recipe.owned_ingredients, urgent),
+                    -count_urgent_owned(recipe.owned_ingredients, urgent),
                     recipe.score,
                 ),
-                reverse=True,
             )
             recipes = candidates[:TOP_K]
         else:
