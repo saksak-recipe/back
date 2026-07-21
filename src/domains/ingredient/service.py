@@ -105,15 +105,28 @@ class IngredientService:
         loop = asyncio.get_running_loop()
         list_cache = self.list_cache
         user_id = self.user.id
+        cancelled = {"value": False}
 
         def invalidate_after_commit(session: Session) -> None:
             session.info.pop(_AI_RECIPE_INVALIDATION_PENDING, None)
+            if cancelled["value"]:
+                return
             loop.create_task(list_cache.invalidate_list(user_id))
+
+        def cancel_on_rollback(session: Session) -> None:
+            cancelled["value"] = True
+            session.info.pop(_AI_RECIPE_INVALIDATION_PENDING, None)
 
         event.listen(
             sync_session,
             "after_commit",
             invalidate_after_commit,
+            once=True,
+        )
+        event.listen(
+            sync_session,
+            "after_rollback",
+            cancel_on_rollback,
             once=True,
         )
         sync_session.info[_AI_RECIPE_INVALIDATION_PENDING] = True
