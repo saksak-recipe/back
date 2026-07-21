@@ -7,8 +7,12 @@ from domains.ingredient_matching.matching import (
 from domains.rag.schemas import RecipeRecommendation
 
 
-def build_ingredient_query(names: list[str]) -> str:
-    return "parsed_ingredients: " + ", ".join(names)
+def build_ingredient_query(
+    names: list[str], urgent_names: list[str] | None = None
+) -> str:
+    urgent = [name for name in (urgent_names or []) if name]
+    weighted = list(urgent) + list(urgent) + list(names)
+    return "parsed_ingredients: " + ", ".join(weighted)
 
 
 def is_recipe_name_in_ingredients(

@@ -2,6 +2,7 @@ import asyncio
 import random
 
 from domains.ingredient.repository import IngredientRepository
+from domains.ingredient_matching.urgency import count_urgent_owned, urgent_names
 from domains.rag.mapper import (
     build_ingredient_query,
     is_recipe_name_in_ingredients,
@@ -35,7 +36,8 @@ class RagService:
         if not names:
             return RecipeRecommendationResponse(ingredients_used=[], recipes=[])
 
-        query = build_ingredient_query(names)
+        urgent = urgent_names(ingredients)
+        query = build_ingredient_query(names, urgent_names=urgent)
         docs_with_scores = await asyncio.to_thread(
             self.retriever.search, query, k=SEARCH_CANDIDATE_K
         )
@@ -57,10 +59,20 @@ class RagService:
             if len(candidates) >= CANDIDATE_POOL_K:
                 break
 
-        if len(candidates) <= TOP_K:
-            recipes = candidates
+        if urgent:
+            candidates.sort(
+                key=lambda recipe: (
+                    count_urgent_owned(recipe.owned_ingredients, urgent),
+                    recipe.score,
+                ),
+                reverse=True,
+            )
+            recipes = candidates[:TOP_K]
         else:
-            recipes = random.sample(candidates, TOP_K)
+            if len(candidates) <= TOP_K:
+                recipes = candidates
+            else:
+                recipes = random.sample(candidates, TOP_K)
 
         return RecipeRecommendationResponse(
             ingredients_used=names,

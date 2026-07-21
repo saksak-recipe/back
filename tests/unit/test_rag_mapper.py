@@ -16,6 +16,16 @@ def test_build_ingredient_query():
     )
 
 
+def test_build_ingredient_query_weights_urgent_first():
+    query = build_ingredient_query(
+        ["양파", "계란", "밥"],
+        urgent_names=["계란"],
+    )
+
+    assert query.startswith("parsed_ingredients: 계란")
+    assert "계란" in query and "양파" in query
+
+
 def test_parse_page_content():
     name, ingredients = parse_page_content(
         "recipe_name: 계란볶음밥\nparsed_ingredients: 계란, 밥, 대파"
