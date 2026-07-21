@@ -19,6 +19,7 @@ from domains.group.schemas import (
     UpdateGroupRequest,
 )
 from domains.group.service import GroupService
+from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
 from domains.user.model import User
 from domains.user.repository import UserRepository
@@ -301,3 +302,40 @@ async def test_owner_can_rotate_code_and_member_cannot(db_session, test_user):
     assert len(rotated_group.invite_code) == 8
     with pytest.raises(ForbiddenException):
         await _service(member, db_session).rotate_code()
+
+
+@pytest.mark.asyncio
+async def test_group_member_can_manage_group_ingredients(db_session, test_user):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+
+    added = await service.add_ingredients(
+        AddIngredientRequest(ingredients=["양파", "당근"])
+    )
+    listed = await service.list_ingredients()
+    updated = await service.update_ingredient(
+        added[0].id, UpdateIngredientRequest(ingredient_name="깐양파")
+    )
+
+    assert [item.ingredient_name for item in listed] == ["양파", "당근"]
+    assert updated.ingredient_name == "깐양파"
+
+    await service.delete_ingredient(added[1].id)
+    await service.delete_all_ingredients()
+
+    assert await service.list_ingredients() == []
+
+
+@pytest.mark.asyncio
+async def test_group_add_ingredients_rejects_conflict_without_partial_insert(
+    db_session, test_user
+):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    await service.add_ingredients(AddIngredientRequest(ingredients=["양파"]))
+
+    with pytest.raises(ConflictException) as exc:
+        await service.add_ingredients(AddIngredientRequest(ingredients=["당근", "양파"]))
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    assert [item.ingredient_name for item in await service.list_ingredients()] == ["양파"]
