@@ -1,7 +1,10 @@
+import uuid
+
 import fakeredis.aioredis
 import pytest
 
 from domains.ai_recipe.cache import AiRecipeCache
+from domains.ingredient.scope import RecipeScope
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
     AiRecipeListCacheRecord,
@@ -51,11 +54,35 @@ async def test_list_cache_roundtrip_and_invalidation():
         ],
     )
 
-    await cache.set_list(user_id=1, record=record)
+    user_id = uuid.uuid4()
+    await cache.set_list(user_id, record=record)
 
-    got = await cache.get_list(1)
+    got = await cache.get_list(user_id)
     assert got == record
-    assert await redis.ttl(cache.list_key(1)) == 1800
+    assert await redis.ttl(cache.list_key(user_id)) == 1800
 
-    await cache.invalidate_list(1)
-    assert await cache.get_list(1) is None
+    await cache.invalidate_list(user_id)
+    assert await cache.get_list(user_id) is None
+
+
+async def test_group_list_key_and_isolation():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    cache = AiRecipeCache(redis, list_ttl_seconds=1800)
+    user_id = uuid.uuid4()
+    group_id = uuid.uuid4()
+    record = AiRecipeListCacheRecord(
+        ingredients_hash="abc",
+        ingredients_used=["계란"],
+        recipes=[],
+    )
+
+    await cache.set_list(group_id, record, scope=RecipeScope.group)
+    assert await cache.get_list(group_id, scope=RecipeScope.group) == record
+    assert await cache.get_list(group_id, scope=RecipeScope.personal) is None
+    assert await cache.get_list(user_id, scope=RecipeScope.personal) is None
+    assert cache.list_key(group_id, scope=RecipeScope.group) == (
+        f"ai_recipe_list:group:{group_id}"
+    )
+
+    await cache.invalidate_list(group_id, scope=RecipeScope.group)
+    assert await cache.get_list(group_id, scope=RecipeScope.group) is None

@@ -1,7 +1,10 @@
+import uuid
+
 from loguru import logger
 from redis.asyncio import Redis
 
 from domains.ai_recipe.schemas import AiRecipeCacheRecord, AiRecipeListCacheRecord
+from domains.ingredient.scope import RecipeScope
 
 TTL_SECONDS = 86400
 LIST_TTL_SECONDS = 1800
@@ -46,12 +49,23 @@ class AiRecipeCache:
             logger.warning("ai recipe cache set failed")
 
     @staticmethod
-    def list_key(user_id: int) -> str:
-        return f"ai_recipe_list:{user_id}"
+    def list_key(
+        owner_id: uuid.UUID,
+        *,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> str:
+        if scope is RecipeScope.group:
+            return f"ai_recipe_list:group:{owner_id}"
+        return f"ai_recipe_list:{owner_id}"
 
-    async def get_list(self, user_id: int) -> AiRecipeListCacheRecord | None:
+    async def get_list(
+        self,
+        owner_id: uuid.UUID,
+        *,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> AiRecipeListCacheRecord | None:
         try:
-            raw = await self._redis.get(self.list_key(user_id))
+            raw = await self._redis.get(self.list_key(owner_id, scope=scope))
         except Exception:
             logger.warning("ai recipe list cache get failed")
             return None
@@ -63,18 +77,29 @@ class AiRecipeCache:
             logger.warning("ai recipe list cache decode failed")
             return None
 
-    async def set_list(self, user_id: int, record: AiRecipeListCacheRecord) -> None:
+    async def set_list(
+        self,
+        owner_id: uuid.UUID,
+        record: AiRecipeListCacheRecord,
+        *,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> None:
         try:
             await self._redis.set(
-                self.list_key(user_id),
+                self.list_key(owner_id, scope=scope),
                 record.model_dump_json(),
                 ex=self._list_ttl,
             )
         except Exception:
             logger.warning("ai recipe list cache set failed")
 
-    async def invalidate_list(self, user_id: int) -> None:
+    async def invalidate_list(
+        self,
+        owner_id: uuid.UUID,
+        *,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> None:
         try:
-            await self._redis.delete(self.list_key(user_id))
+            await self._redis.delete(self.list_key(owner_id, scope=scope))
         except Exception:
             logger.warning("ai recipe list cache invalidate failed")
