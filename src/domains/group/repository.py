@@ -94,7 +94,7 @@ class GroupRepository:
 
     async def delete_group(self, group: Group) -> None:
         try:
-            self.session.delete(group)
+            await self.session.delete(group)
             await self.session.flush()
         except SQLAlchemyError as e:
             raise DatabaseException(
