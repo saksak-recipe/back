@@ -244,7 +244,7 @@ class AiRecipeService:
             )
             await self.cache.set(updated)
             yield ("done", {"cached": False})
-        except (TimeoutError, AgentFailedError, openai.OpenAIError):
+        except Exception:
             logger.exception("AI recipe detail stream failed")
             yield ("error", {"detail": "AI 레시피 상세 생성에 실패했습니다."})
 

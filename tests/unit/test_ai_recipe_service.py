@@ -693,3 +693,44 @@ async def test_stream_detail_missing_raises(user):
 
     with pytest.raises(NotFoundException):
         _ = [e async for e in service.stream_detail("missing")]
+
+
+async def test_stream_detail_cache_set_failure_yields_error(user):
+    cache = AsyncMock()
+    summary = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란"],
+        owned_ingredients=["계란"],
+        missing_ingredients=[],
+    )
+    cache.get.return_value = summary
+    cache.set.side_effect = RuntimeError("redis down")
+    agent = MagicMock()
+    agent.stream_detail.return_value = iter(
+        [
+            ("ingredients", [{"name": "계란", "amount": "2개"}]),
+            ("steps", [{"order": 1, "description": "볶는다"}]),
+            ("tips", ["약불"]),
+            (
+                "complete",
+                {
+                    "ingredients": [AiRecipeIngredient(name="계란", amount="2개")],
+                    "steps": [AiRecipeStep(order=1, description="볶는다")],
+                    "tips": ["약불"],
+                },
+            ),
+        ]
+    )
+    scope_loader = _scope_loader([], cache_owner_id=user.id)
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
+    )
+
+    events = [e async for e in service.stream_detail("rid")]
+
+    assert events[-1] == (
+        "error",
+        {"detail": "AI 레시피 상세 생성에 실패했습니다."},
+    )
+    cache.set.assert_awaited_once()

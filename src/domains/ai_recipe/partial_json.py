@@ -27,6 +27,9 @@ class PartialDetailParser:
         for key in _SECTION_KEYS:
             if key in self._emitted:
                 continue
+            key_index = _SECTION_KEYS.index(key)
+            if any(pred not in self._emitted for pred in _SECTION_KEYS[:key_index]):
+                continue
             value = self._try_extract_array(key, require_next_key=require_next_key)
             if value is not None:
                 self._emitted.add(key)
