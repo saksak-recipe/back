@@ -77,3 +77,36 @@ async def test_recommendations_returns_mapped_recipes(
         assert "계란" in called_query and "양파" in called_query
     finally:
         app.dependency_overrides.pop(get_rag_retriever, None)
+
+
+async def test_recommendations_invalid_scope_422(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    app.dependency_overrides[get_rag_retriever] = lambda: MagicMock()
+    try:
+        response = await client.get(
+            "/api/v1/recipes/recommendations",
+            headers=auth_headers,
+            params={"scope": "workspace"},
+        )
+
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_rag_retriever, None)
+
+
+async def test_recommendations_group_without_membership_404(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    app.dependency_overrides[get_rag_retriever] = lambda: MagicMock()
+    try:
+        response = await client.get(
+            "/api/v1/recipes/recommendations",
+            headers=auth_headers,
+            params={"scope": "group"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["code"] == ErrorCode.GROUP_NOT_FOUND
+    finally:
+        app.dependency_overrides.pop(get_rag_retriever, None)

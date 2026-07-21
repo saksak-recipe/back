@@ -9,6 +9,7 @@ from domains.ai_recipe.agent import AiRecipeAgent
 from domains.ai_recipe.cache import AiRecipeCache
 from domains.ai_recipe.service import AiRecipeService
 from domains.ingredient.repository import IngredientRepository
+from domains.ingredient.scope import IngredientScopeLoader
 from domains.ingredient.service import IngredientService
 
 from domains.user.repository import UserRepository
@@ -109,14 +110,26 @@ def get_rag_retriever() -> RecipeRetriever:
     return get_recipe_retriever()
 
 
-def get_rag_service(
+def get_ingredient_scope_loader(
     user: User = Depends(get_current_user),
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
+    session: AsyncSession = Depends(get_db),
+) -> IngredientScopeLoader:
+    return IngredientScopeLoader(
+        user=user,
+        ingredient_repo=ingredient_repo,
+        group_repo=GroupRepository(session),
+    )
+
+
+def get_rag_service(
+    user: User = Depends(get_current_user),
+    scope_loader: IngredientScopeLoader = Depends(get_ingredient_scope_loader),
     retriever: RecipeRetriever = Depends(get_rag_retriever),
 ) -> RagService:
     return RagService(
         user=user,
-        ingredient_repo=ingredient_repo,
+        scope_loader=scope_loader,
         retriever=retriever,
     )
 

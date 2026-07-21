@@ -1,7 +1,7 @@
 import asyncio
 import random
 
-from domains.ingredient.repository import IngredientRepository
+from domains.ingredient.scope import IngredientScopeLoader, RecipeScope
 from domains.ingredient_matching.urgency import count_urgent_owned, urgent_names
 from domains.rag.mapper import (
     build_ingredient_query,
@@ -23,15 +23,18 @@ class RagService:
     def __init__(
         self,
         user: User,
-        ingredient_repo: IngredientRepository,
+        scope_loader: IngredientScopeLoader,
         retriever: RecipeRetriever,
     ):
         self.user = user
-        self.ingredient_repo = ingredient_repo
+        self.scope_loader = scope_loader
         self.retriever = retriever
 
-    async def recommend_recipes(self) -> RecipeRecommendationResponse:
-        ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
+    async def recommend_recipes(
+        self, scope: RecipeScope = RecipeScope.personal
+    ) -> RecipeRecommendationResponse:
+        scoped = await self.scope_loader.load(scope)
+        ingredients = scoped.ingredients
         names = [item.ingredient_name for item in ingredients]
         if not names:
             return RecipeRecommendationResponse(ingredients_used=[], recipes=[])

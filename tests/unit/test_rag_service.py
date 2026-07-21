@@ -6,6 +6,7 @@ import uuid6
 from langchain_core.documents import Document
 
 from domains.ingredient.model import Ingredient
+from domains.ingredient.scope import RecipeScope, ScopedIngredients
 from domains.rag.retriever import RecipeRetriever
 from domains.rag.service import CANDIDATE_POOL_K, SEARCH_CANDIDATE_K, TOP_K, RagService
 from domains.user.model import User
@@ -22,7 +23,7 @@ def user() -> User:
 
 
 @pytest.fixture
-def ingredient_repo() -> AsyncMock:
+def scope_loader() -> AsyncMock:
     return AsyncMock()
 
 
@@ -32,10 +33,10 @@ def retriever() -> MagicMock:
 
 
 @pytest.fixture
-def rag_service(user, ingredient_repo, retriever) -> RagService:
+def rag_service(user, scope_loader, retriever) -> RagService:
     return RagService(
         user=user,
-        ingredient_repo=ingredient_repo,
+        scope_loader=scope_loader,
         retriever=retriever,
     )
 
@@ -52,10 +53,23 @@ def _doc(name: str, ingredients: str = "계란") -> Document:
     )
 
 
+def _set_personal_scope(
+    scope_loader: AsyncMock, user: User, ingredients: list[Ingredient]
+) -> None:
+    scope_loader.load.return_value = ScopedIngredients(
+        ingredients=ingredients,
+        scope=RecipeScope.personal,
+        cache_owner_id=user.id,
+    )
+
+
 async def test_recommend_returns_empty_when_no_ingredients(
-    rag_service: RagService, ingredient_repo: AsyncMock, retriever: MagicMock
+    rag_service: RagService,
+    scope_loader: AsyncMock,
+    retriever: MagicMock,
+    user: User,
 ):
-    ingredient_repo.get_ingredients.return_value = []
+    _set_personal_scope(scope_loader, user, [])
 
     result = await rag_service.recommend_recipes()
 
@@ -66,24 +80,28 @@ async def test_recommend_returns_empty_when_no_ingredients(
 
 async def test_recommend_maps_search_results(
     rag_service: RagService,
-    ingredient_repo: AsyncMock,
+    scope_loader: AsyncMock,
     retriever: MagicMock,
     user: User,
 ):
-    ingredient_repo.get_ingredients.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="계란",
-            purchase_date=date.today(),
-        ),
-        Ingredient(
-            id=2,
-            user_id=user.id,
-            ingredient_name="양파",
-            purchase_date=date.today(),
-        ),
-    ]
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+            ),
+            Ingredient(
+                id=2,
+                user_id=user.id,
+                ingredient_name="양파",
+                purchase_date=date.today(),
+            ),
+        ],
+    )
     doc = Document(
         page_content="recipe_name: 계란볶음밥\nparsed_ingredients: 계란, 양파, 밥",
         metadata={
@@ -110,24 +128,28 @@ async def test_recommend_maps_search_results(
 
 async def test_recommend_filters_recipes_named_like_ingredients(
     rag_service: RagService,
-    ingredient_repo: AsyncMock,
+    scope_loader: AsyncMock,
     retriever: MagicMock,
     user: User,
 ):
-    ingredient_repo.get_ingredients.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="김가루",
-            purchase_date=date.today(),
-        ),
-        Ingredient(
-            id=2,
-            user_id=user.id,
-            ingredient_name="계란",
-            purchase_date=date.today(),
-        ),
-    ]
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="김가루",
+                purchase_date=date.today(),
+            ),
+            Ingredient(
+                id=2,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+            ),
+        ],
+    )
     name_collision = Document(
         page_content="recipe_name: 김가루\nparsed_ingredients: 김, 참기름",
         metadata={},
@@ -150,18 +172,22 @@ async def test_recommend_filters_recipes_named_like_ingredients(
 
 async def test_recommend_skips_unparsable_documents(
     rag_service: RagService,
-    ingredient_repo: AsyncMock,
+    scope_loader: AsyncMock,
     retriever: MagicMock,
     user: User,
 ):
-    ingredient_repo.get_ingredients.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="계란",
-            purchase_date=date.today(),
-        )
-    ]
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+            )
+        ],
+    )
     bad = Document(page_content="no name here", metadata={})
     good = Document(
         page_content="recipe_name: 된장찌개\nparsed_ingredients: 계란",
@@ -177,18 +203,22 @@ async def test_recommend_skips_unparsable_documents(
 
 async def test_recommend_samples_five_from_top_fifteen_pool(
     rag_service: RagService,
-    ingredient_repo: AsyncMock,
+    scope_loader: AsyncMock,
     retriever: MagicMock,
     user: User,
 ):
-    ingredient_repo.get_ingredients.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="계란",
-            purchase_date=date.today(),
-        )
-    ]
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+            )
+        ],
+    )
     retriever.search.return_value = [
         (_doc(f"레시피{i}"), float(i) / 100) for i in range(SEARCH_CANDIDATE_K)
     ]
@@ -210,19 +240,23 @@ async def test_recommend_samples_five_from_top_fifteen_pool(
 
 async def test_recommend_reranks_by_urgent_owned_without_sampling(
     rag_service: RagService,
-    ingredient_repo: AsyncMock,
+    scope_loader: AsyncMock,
     retriever: MagicMock,
     user: User,
 ):
-    ingredient_repo.get_ingredients.return_value = [
-        Ingredient(
-            id=1,
-            user_id=user.id,
-            ingredient_name="계란",
-            purchase_date=date.today(),
-            expiration_date=date.today(),
-        )
-    ]
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+                expiration_date=date.today(),
+            )
+        ],
+    )
     retriever.search.return_value = [
         (_doc("일반고득점", "밥"), 0.99),
         (_doc("긴급저득점", "계란"), 0.1),
@@ -234,7 +268,9 @@ async def test_recommend_reranks_by_urgent_owned_without_sampling(
 
     with patch(
         "domains.rag.service.random.sample",
-        side_effect=AssertionError("urgent 재료가 있으면 random.sample을 호출하면 안 됩니다"),
+        side_effect=AssertionError(
+            "urgent 재료가 있으면 random.sample을 호출하면 안 됩니다"
+        ),
     ):
         result = await rag_service.recommend_recipes()
 
@@ -249,3 +285,41 @@ async def test_recommend_reranks_by_urgent_owned_without_sampling(
         "parsed_ingredients: 계란, 계란, 계란",
         k=SEARCH_CANDIDATE_K,
     )
+
+
+async def test_recommend_group_scope_uses_scoped_ingredients(user, retriever):
+    group_id = uuid6.uuid7()
+    item = Ingredient(
+        id=1,
+        user_id=user.id,
+        group_id=group_id,
+        ingredient_name="양파",
+        purchase_date=date.today(),
+    )
+    scope_loader = AsyncMock()
+    scope_loader.load.return_value = ScopedIngredients(
+        ingredients=[item],
+        scope=RecipeScope.group,
+        cache_owner_id=group_id,
+    )
+    service = RagService(user=user, scope_loader=scope_loader, retriever=retriever)
+    retriever.search.return_value = []
+
+    result = await service.recommend_recipes(scope=RecipeScope.group)
+
+    scope_loader.load.assert_awaited_once_with(RecipeScope.group)
+    assert result.ingredients_used == ["양파"]
+
+
+async def test_recommend_defaults_to_personal(user, retriever):
+    scope_loader = AsyncMock()
+    scope_loader.load.return_value = ScopedIngredients(
+        ingredients=[],
+        scope=RecipeScope.personal,
+        cache_owner_id=user.id,
+    )
+    service = RagService(user=user, scope_loader=scope_loader, retriever=retriever)
+
+    await service.recommend_recipes()
+
+    scope_loader.load.assert_awaited_once_with(RecipeScope.personal)

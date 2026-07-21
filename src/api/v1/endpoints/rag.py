@@ -17,6 +17,7 @@ from domains.ai_recipe.schemas import (
     AiRecipeRecommendationResponse,
 )
 from domains.ai_recipe.service import AiRecipeService
+from domains.ingredient.scope import RecipeScope
 from domains.rag.schemas import RecipeRecommendationResponse
 from domains.rag.service import RagService
 from domains.recipe_detail.schemas import RecipeDetailResponse
@@ -36,9 +37,10 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
     ),
 )
 async def recommend_recipes(
+    scope: RecipeScope = RecipeScope.personal,
     service: RagService = Depends(get_rag_service),
 ) -> RecipeRecommendationResponse:
-    return await service.recommend_recipes()
+    return await service.recommend_recipes(scope=scope)
 
 
 @router.get(
