@@ -171,4 +171,5 @@ def get_group_service(
         user_repo=UserRepository(session),
         ingredient_repo=IngredientRepository(session),
         shopping_repo=ShoppingRepository(session),
+        list_cache=AiRecipeCache(get_redis()),
     )
