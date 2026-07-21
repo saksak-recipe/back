@@ -206,3 +206,45 @@ async def test_recommend_samples_five_from_top_fifteen_pool(
     assert {r.recipe_name for r in result.recipes} <= {
         f"레시피{i}" for i in range(CANDIDATE_POOL_K)
     }
+
+
+async def test_recommend_reranks_by_urgent_owned_without_sampling(
+    rag_service: RagService,
+    ingredient_repo: AsyncMock,
+    retriever: MagicMock,
+    user: User,
+):
+    ingredient_repo.get_ingredients.return_value = [
+        Ingredient(
+            id=1,
+            user_id=user.id,
+            ingredient_name="계란",
+            purchase_date=date.today(),
+            expiration_date=date.today(),
+        )
+    ]
+    retriever.search.return_value = [
+        (_doc("일반고득점", "밥"), 0.99),
+        (_doc("긴급저득점", "계란"), 0.1),
+        (_doc("긴급동의어", "달걀"), 0.5),
+        (_doc("일반중득점", "양파"), 0.8),
+        (_doc("긴급고득점", "계란"), 0.9),
+        (_doc("일반저득점", "대파"), 0.2),
+    ]
+
+    with patch(
+        "domains.rag.service.random.sample",
+        side_effect=AssertionError("urgent 재료가 있으면 random.sample을 호출하면 안 됩니다"),
+    ):
+        result = await rag_service.recommend_recipes()
+
+    assert len(result.recipes) == TOP_K
+    assert [recipe.recipe_name for recipe in result.recipes[:3]] == [
+        "긴급고득점",
+        "긴급동의어",
+        "긴급저득점",
+    ]
+    retriever.search.assert_called_once_with(
+        "parsed_ingredients: 계란, 계란, 계란",
+        k=SEARCH_CANDIDATE_K,
+    )
