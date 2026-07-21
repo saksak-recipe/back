@@ -23,6 +23,7 @@ from domains.auth.schemas import (
     KakaoNeedsProfileResponse,
     PasswordResetConfirmRequest,
 )
+from domains.auth.signup_pending_store import PendingSignup, SignupPendingStore
 from domains.auth.verification_store import (
     CODE_TTL_SECONDS,
     PURPOSE_PASSWORD_RESET,
@@ -31,7 +32,12 @@ from domains.auth.verification_store import (
 )
 from domains.user.model import User
 from domains.user.repository import UserRepository
-from domains.user.schemas import LogInRequest, LogInResponse, UserInfoResponse
+from domains.user.schemas import (
+    LogInRequest,
+    LogInResponse,
+    SignUpRequest,
+    UserInfoResponse,
+)
 
 
 @dataclass(frozen=True)
@@ -47,11 +53,13 @@ class AuthService:
         refresh_store: RefreshTokenStore,
         verification_store: VerificationCodeStore,
         email_service: EmailService,
+        signup_pending_store: SignupPendingStore,
     ) -> None:
         self.user_repo = user_repo
         self.refresh_store = refresh_store
         self.verification_store = verification_store
         self.email_service = email_service
+        self.signup_pending_store = signup_pending_store
 
     async def issue_tokens(self, user: User) -> TokenPair:
         access_token = security.create_jwt(user.id)
@@ -75,38 +83,78 @@ class AuthService:
             refresh_token=tokens.refresh_token,
         )
 
-    async def send_signup_code(self, email: str) -> None:
+    async def signup(self, request: SignUpRequest) -> dict:
+        email = str(request.email)
+        existing_user = await self.user_repo.get_user_by_email(email)
+        if existing_user and existing_user.is_email_verified:
+            raise ConflictException(
+                code=ErrorCode.EMAIL_CONFLICT,
+                detail="이미 사용 중인 이메일 입니다.",
+            )
+        if existing_user and not existing_user.is_email_verified:
+            await self.user_repo.delete_user(existing_user)
+
+        existing_nickname = await self.user_repo.get_user_by_nickname(
+            request.nickname
+        )
+        if existing_nickname and existing_nickname.is_email_verified:
+            raise ConflictException(
+                code=ErrorCode.NICKNAME_CONFLICT,
+                detail="이미 사용 중인 닉네임 입니다.(대소문자 구별)",
+            )
+
+        pending = PendingSignup(
+            email=email,
+            password_hash=security.hash_password(request.password),
+            nickname=request.nickname,
+        )
+        await self.signup_pending_store.upsert(pending)
+
         code = await self.verification_store.issue(PURPOSE_SIGNUP, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
         )
+        return {"email": email, "message": "verification_code_sent"}
 
     async def verify_email(self, request: EmailVerifyRequest) -> LogInResponse:
         email = str(request.email)
-        user = await self.user_repo.get_user_by_email(email)
-        if not user:
-            raise UserNotFoundException()
-        if user.is_email_verified:
+        existing_user = await self.user_repo.get_user_by_email(email)
+        if existing_user and existing_user.is_email_verified:
             raise BadRequestException(
                 code=ErrorCode.EMAIL_ALREADY_VERIFIED,
                 detail="이미 인증된 이메일입니다.",
             )
+
         await self.verification_store.verify(PURPOSE_SIGNUP, email, request.code)
-        user.is_email_verified = True
-        user = await self.user_repo.save(user)
+
+        pending = await self.signup_pending_store.pop(email)
+        if pending is None:
+            raise UserNotFoundException(detail="회원가입 정보가 만료되었습니다.")
+
+        user = User(
+            email=pending.email,
+            password=pending.password_hash,
+            nickname=pending.nickname,
+            is_email_verified=True,
+        )
+        user = await self.user_repo.add_user(user)
         tokens = await self.issue_tokens(user)
         return self._to_auth_response(user, tokens)
 
     async def resend_verification(self, request: EmailResendRequest) -> dict:
         email = str(request.email)
         user = await self.user_repo.get_user_by_email(email)
-        if not user:
-            raise UserNotFoundException()
-        if user.is_email_verified:
+        pending = await self.signup_pending_store.get(email)
+
+        if user and user.is_email_verified:
             raise BadRequestException(
                 code=ErrorCode.EMAIL_ALREADY_VERIFIED,
                 detail="이미 인증된 이메일입니다.",
             )
+
+        if not pending:
+            raise UserNotFoundException()
+
         code = await self.verification_store.resend(PURPOSE_SIGNUP, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
@@ -144,6 +192,12 @@ class AuthService:
     async def login(self, request: LogInRequest) -> LogInResponse:
         user = await self.user_repo.get_user_by_email(str(request.email))
         if not user:
+            pending = await self.signup_pending_store.get(str(request.email))
+            if pending:
+                raise UnAuthorizedException(
+                    code=ErrorCode.EMAIL_NOT_VERIFIED,
+                    detail="이메일 인증이 필요합니다.",
+                )
             raise UnAuthorizedException(
                 detail="이메일 또는 비밀번호가 올바르지 않습니다."
             )

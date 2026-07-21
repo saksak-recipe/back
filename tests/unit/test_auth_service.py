@@ -16,6 +16,7 @@ from domains.auth.schemas import (
     KakaoCompleteRequest,
     PasswordResetConfirmRequest,
 )
+from domains.auth.signup_pending_store import PendingSignup
 from domains.auth.service import AuthService
 from domains.auth.verification_store import PURPOSE_PASSWORD_RESET, PURPOSE_SIGNUP
 from domains.user.model import User
@@ -43,17 +44,24 @@ def email_service() -> AsyncMock:
 
 
 @pytest.fixture
+def signup_pending_store() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
 def auth_service(
     user_repo: AsyncMock,
     refresh_store: AsyncMock,
     verification_store: AsyncMock,
     email_service: AsyncMock,
+    signup_pending_store: AsyncMock,
 ) -> AuthService:
     return AuthService(
         user_repo=user_repo,
         refresh_store=refresh_store,
         verification_store=verification_store,
         email_service=email_service,
+        signup_pending_store=signup_pending_store,
     )
 
 
@@ -146,35 +154,64 @@ async def test_login_rejects_unverified_email_user(
     assert exc_info.value.code == ErrorCode.EMAIL_NOT_VERIFIED
 
 
+async def test_login_rejects_when_signup_pending(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    signup_pending_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+    signup_pending_store.get.return_value = PendingSignup(
+        email="pending@example.com",
+        password_hash="hashed",
+        nickname="pending",
+    )
+
+    with pytest.raises(UnAuthorizedException) as exc_info:
+        await auth_service.login(
+            LogInRequest(email="pending@example.com", password="password123")
+        )
+
+    assert exc_info.value.code == ErrorCode.EMAIL_NOT_VERIFIED
+
+
 async def test_verify_email_issues_tokens(
     auth_service: AuthService,
     user_repo: AsyncMock,
     refresh_store: AsyncMock,
     verification_store: AsyncMock,
+    signup_pending_store: AsyncMock,
 ):
-    user = User(
+    created = User(
         id=uuid6.uuid7(),
         email="verify@example.com",
         password=security.hash_password("password123"),
         nickname="verifyme",
-        is_email_verified=False,
+        is_email_verified=True,
     )
-    user_repo.get_user_by_email.return_value = user
-    user_repo.save.side_effect = lambda saved_user: saved_user
+    user_repo.get_user_by_email.return_value = None
+    user_repo.add_user.return_value = created
     verification_store.verify.return_value = None
+    signup_pending_store.pop.return_value = PendingSignup(
+        email="verify@example.com",
+        password_hash=security.hash_password("password123"),
+        nickname="verifyme",
+    )
 
     response = await auth_service.verify_email(
         EmailVerifyRequest(email="verify@example.com", code="123456")
     )
 
-    assert user.is_email_verified is True
     assert response.access_token
     assert response.refresh_token
     assert response.info.email == "verify@example.com"
     verification_store.verify.assert_awaited_once_with(
         PURPOSE_SIGNUP, "verify@example.com", "123456"
     )
-    user_repo.save.assert_awaited_once_with(user)
+    user_repo.add_user.assert_awaited_once()
+    added_user = user_repo.add_user.await_args.args[0]
+    assert added_user.email == "verify@example.com"
+    assert added_user.nickname == "verifyme"
+    assert added_user.is_email_verified is True
     refresh_store.save.assert_awaited_once()
 
 

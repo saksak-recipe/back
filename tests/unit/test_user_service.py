@@ -236,6 +236,69 @@ async def test_purge_deletes_expired_only(
     user_repo.delete_user.assert_awaited_once_with(old)
 
 
+async def test_purge_unverified_deletes_only_stale_candidates(
+    user_service: UserService, user_repo: AsyncMock
+):
+    now = datetime.now(timezone.utc)
+    stale = User(
+        email="stale@example.com",
+        password="h",
+        nickname="stale",
+        is_email_verified=False,
+        created_at=now - timedelta(days=3),
+    )
+    user_repo.list_unverified_before.return_value = [stale]
+
+    deleted = await user_service.purge_unverified_users(
+        older_than=timedelta(days=1),
+        now=now,
+    )
+
+    assert deleted == 1
+    user_repo.list_unverified_before.assert_awaited_once()
+    user_repo.delete_user.assert_awaited_once_with(stale)
+
+
+async def test_purge_unverified_hard_deletes_from_db(
+    db_session: AsyncSession,
+):
+    now = datetime.now(timezone.utc)
+    old_unverified = User(
+        email="old-unverified@example.com",
+        password="h",
+        nickname="old-unverified",
+        is_email_verified=False,
+        created_at=now - timedelta(days=2),
+    )
+    fresh_unverified = User(
+        email="fresh-unverified@example.com",
+        password="h",
+        nickname="fresh-unverified",
+        is_email_verified=False,
+        created_at=now - timedelta(hours=1),
+    )
+    verified = User(
+        email="verified@example.com",
+        password="h",
+        nickname="verified",
+        is_email_verified=True,
+        created_at=now - timedelta(days=10),
+    )
+    db_session.add_all([old_unverified, fresh_unverified, verified])
+    await db_session.flush()
+
+    service = UserService(user_repo=UserRepository(db_session))
+    deleted = await service.purge_unverified_users(
+        older_than=timedelta(days=1),
+        now=now,
+    )
+
+    assert deleted == 1
+    assert await db_session.get(User, old_unverified.id) is None
+    assert await db_session.get(User, fresh_unverified.id) is not None
+    assert await db_session.get(User, verified.id) is not None
+
+
 async def test_purge_hard_deletes_user_and_cascades_ingredients(
     db_session: AsyncSession,
 ):

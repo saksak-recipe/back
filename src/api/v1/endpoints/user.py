@@ -20,12 +20,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 )
 async def signup(
     request: SignUpRequest,
-    user_service: UserService = Depends(get_user_service),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> SignUpResponse:
-    user = await user_service.sign_up(request)
-    await auth_service.send_signup_code(user.email)
-    return SignUpResponse(email=user.email, message="verification_code_sent")
+    result = await auth_service.signup(request)
+    return SignUpResponse(**result)
 
 
 @router.get("/me", response_model=UserInfoResponse)

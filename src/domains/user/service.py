@@ -108,3 +108,17 @@ class UserService:
             await self.user_repo.delete_user(user)
 
         return len(users)
+
+    async def purge_unverified_users(
+        self,
+        older_than: timedelta,
+        now: datetime | None = None,
+    ) -> int:
+        now = now or datetime.now(timezone.utc)
+        cutoff = now - older_than
+        users = await self.user_repo.list_unverified_before(cutoff)
+
+        for user in users:
+            await self.user_repo.delete_user(user)
+
+        return len(users)

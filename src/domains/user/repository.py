@@ -76,3 +76,16 @@ class UserRepository:
             raise DatabaseException(
                 detail="탈퇴 사용자 조회 중 DB 오류가 발생했습니다."
             ) from e
+
+    async def list_unverified_before(self, cutoff: datetime) -> list[User]:
+        try:
+            stmt = select(User).where(
+                User.is_email_verified.is_(False),
+                User.created_at < cutoff,
+            )
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="미인증 사용자 조회 중 DB 오류가 발생했습니다."
+            ) from e

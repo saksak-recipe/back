@@ -7,6 +7,7 @@ from core.redis import get_redis
 from core.security import REFRESH_TOKEN_EXPIRE_SECONDS, get_access_token
 from domains.auth.email_service import EmailService
 from domains.auth.refresh_store import RefreshTokenStore
+from domains.auth.signup_pending_store import SignupPendingStore
 from domains.auth.verification_store import VerificationCodeStore
 from domains.ai_recipe.agent import AiRecipeAgent
 from domains.ai_recipe.cache import AiRecipeCache
@@ -51,6 +52,10 @@ def get_verification_store() -> VerificationCodeStore:
     return VerificationCodeStore(get_redis())
 
 
+def get_signup_pending_store() -> SignupPendingStore:
+    return SignupPendingStore(get_redis())
+
+
 def get_email_service() -> EmailService:
     return EmailService(
         backend=settings.EMAIL_BACKEND,
@@ -73,12 +78,14 @@ def get_auth_service(
     refresh_store: RefreshTokenStore = Depends(get_refresh_store),
     verification_store: VerificationCodeStore = Depends(get_verification_store),
     email_service: EmailService = Depends(get_email_service),
+    signup_pending_store: SignupPendingStore = Depends(get_signup_pending_store),
 ) -> AuthService:
     return AuthService(
         user_repo=user_repo,
         refresh_store=refresh_store,
         verification_store=verification_store,
         email_service=email_service,
+        signup_pending_store=signup_pending_store,
     )
 
 

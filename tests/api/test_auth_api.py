@@ -54,7 +54,7 @@ async def test_signup_sends_code_without_tokens(
     assert "refresh_token" not in body
 
 
-async def test_signup_returns_conflict_for_duplicate_email(
+async def test_signup_allows_repeat_before_verification(
     client: AsyncClient, fixed_email_code
 ):
     payload = {
@@ -70,6 +70,30 @@ async def test_signup_returns_conflict_for_duplicate_email(
         json={
             **payload,
             "nickname": "usertwo",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["email"] == "duplicate@example.com"
+
+
+async def test_signup_returns_conflict_for_verified_email(
+    client: AsyncClient, fixed_email_code
+):
+    payload = {
+        "email": "verified-dup@example.com",
+        "password": "password123",
+        "checked_password": "password123",
+        "nickname": "verifieddup",
+    }
+    await client.post("/api/v1/users/signup", json=payload)
+    await _verify(client, email="verified-dup@example.com")
+
+    response = await client.post(
+        "/api/v1/users/signup",
+        json={
+            **payload,
+            "nickname": "verifieddup2",
         },
     )
 
