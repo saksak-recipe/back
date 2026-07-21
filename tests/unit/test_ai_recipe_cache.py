@@ -2,7 +2,11 @@ import fakeredis.aioredis
 import pytest
 
 from domains.ai_recipe.cache import AiRecipeCache
-from domains.ai_recipe.schemas import AiRecipeCacheRecord
+from domains.ai_recipe.schemas import (
+    AiRecipeCacheRecord,
+    AiRecipeListCacheRecord,
+    AiRecipeRecommendation,
+)
 
 
 @pytest.fixture
@@ -30,3 +34,28 @@ async def test_set_get_roundtrip(cache: AiRecipeCache):
 
 async def test_get_missing_returns_none(cache: AiRecipeCache):
     assert await cache.get("00000000-0000-0000-0000-000000000000") is None
+
+
+async def test_list_cache_roundtrip_and_invalidation():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    cache = AiRecipeCache(redis, list_ttl_seconds=1800)
+    record = AiRecipeListCacheRecord(
+        ingredients_hash="abc",
+        ingredients_used=["계란"],
+        recipes=[
+            AiRecipeRecommendation(
+                recipe_id="rid",
+                recipe_name="계란찜",
+                owned_ingredients=["계란"],
+            )
+        ],
+    )
+
+    await cache.set_list(user_id=1, record=record)
+
+    got = await cache.get_list(1)
+    assert got == record
+    assert await redis.ttl(cache.list_key(1)) == 1800
+
+    await cache.invalidate_list(1)
+    assert await cache.get_list(1) is None

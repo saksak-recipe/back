@@ -45,6 +45,12 @@ class AiRecipeRecommendationResponse(BaseModel):
     recipes: list[AiRecipeRecommendation]
 
 
+class AiRecipeListCacheRecord(BaseModel):
+    ingredients_hash: str
+    ingredients_used: list[str]
+    recipes: list[AiRecipeRecommendation]
+
+
 class AiRecipeCacheRecord(BaseModel):
     recipe_id: str
     recipe_name: str

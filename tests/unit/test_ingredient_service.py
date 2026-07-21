@@ -19,6 +19,11 @@ def ingredient_repo() -> AsyncMock:
 
 
 @pytest.fixture
+def list_cache() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
 def user() -> User:
     return User(
         id=uuid6.uuid7(),
@@ -29,12 +34,21 @@ def user() -> User:
 
 
 @pytest.fixture
-def ingredient_service(user: User, ingredient_repo: AsyncMock) -> IngredientService:
-    return IngredientService(user=user, ingredient_repo=ingredient_repo)
+def ingredient_service(
+    user: User, ingredient_repo: AsyncMock, list_cache: AsyncMock
+) -> IngredientService:
+    return IngredientService(
+        user=user,
+        ingredient_repo=ingredient_repo,
+        list_cache=list_cache,
+    )
 
 
 async def test_add_ingredients_returns_saved_items(
-    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+    ingredient_service: IngredientService,
+    ingredient_repo: AsyncMock,
+    list_cache: AsyncMock,
+    user: User,
 ):
     saved = [
         Ingredient(
@@ -60,6 +74,7 @@ async def test_add_ingredients_returns_saved_items(
     assert result[0].ingredient_name == "양파"
     assert result[1].ingredient_name == "당근"
     assert result[0].status == "unknown"
+    list_cache.invalidate_list.assert_awaited_once_with(user.id)
 
 
 async def test_compute_status_boundaries():
@@ -202,7 +217,10 @@ async def test_get_ingredients_sorts_by_status(
 
 
 async def test_update_ingredient_partial_fields(
-    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+    ingredient_service: IngredientService,
+    ingredient_repo: AsyncMock,
+    list_cache: AsyncMock,
+    user: User,
 ):
     existing = Ingredient(
         id=1,
@@ -226,6 +244,7 @@ async def test_update_ingredient_partial_fields(
     assert result.expiration_date == expiration
     assert result.status == "soon"
     ingredient_repo.get_by_id.assert_awaited_once_with(1, user.id)
+    list_cache.invalidate_list.assert_awaited_once_with(user.id)
 
 
 async def test_update_ingredient_empty_patch_raises(
@@ -255,6 +274,19 @@ async def test_delete_ingredient_raises_when_not_found(
         await ingredient_service.delete_ingredient(999)
 
 
+async def test_delete_ingredient_invalidates_list_cache(
+    ingredient_service: IngredientService,
+    ingredient_repo: AsyncMock,
+    list_cache: AsyncMock,
+    user: User,
+):
+    ingredient_repo.delete_ingredient.return_value = True
+
+    await ingredient_service.delete_ingredient(1)
+
+    list_cache.invalidate_list.assert_awaited_once_with(user.id)
+
+
 async def test_delete_all_ingredients_raises_when_empty(
     ingredient_service: IngredientService, ingredient_repo: AsyncMock
 ):
@@ -265,10 +297,14 @@ async def test_delete_all_ingredients_raises_when_empty(
 
 
 async def test_delete_all_ingredients_deletes_all(
-    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+    ingredient_service: IngredientService,
+    ingredient_repo: AsyncMock,
+    list_cache: AsyncMock,
+    user: User,
 ):
     ingredient_repo.delete_all_ingredients.return_value = True
 
     await ingredient_service.delete_all_ingredients()
 
     ingredient_repo.delete_all_ingredients.assert_awaited_once_with(user.id)
+    list_cache.invalidate_list.assert_awaited_once_with(user.id)
