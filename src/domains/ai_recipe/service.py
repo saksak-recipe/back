@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
+from collections.abc import AsyncIterator
+from typing import Any
 
 import openai
 from loguru import logger
+from pydantic import BaseModel
 
 from core.exception.exceptions import ExternalServiceException, NotFoundException
 from domains.ai_recipe.agent import AgentFailedError, AiRecipeAgent
@@ -31,6 +34,16 @@ AGENT_TIMEOUT_SECONDS = 25
 def ingredients_hash(names: list[str]) -> str:
     normalized = ",".join(sorted(normalize_name(name) for name in names))
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+
+
+def _maybe_dump(value: object) -> object:
+    if isinstance(value, list):
+        return [
+            item.model_dump() if isinstance(item, BaseModel) else item for item in value
+        ]
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    return value
 
 
 class AiRecipeService:
@@ -168,6 +181,109 @@ class AiRecipeService:
         )
         await self.cache.set(updated)
         return self._detail_response(updated, cached=False)
+
+    async def stream_detail(
+        self,
+        recipe_id: str,
+        scope: RecipeScope = RecipeScope.personal,
+    ) -> AsyncIterator[tuple[str, object]]:
+        record = await self.cache.get(recipe_id)
+        if record is None:
+            raise NotFoundException(detail="AI 레시피를 찾지 못했습니다.")
+
+        if record.has_detail():
+            yield (
+                "meta",
+                {
+                    "recipe_id": record.recipe_id,
+                    "recipe_name": record.recipe_name,
+                    "owned_ingredients": record.owned_ingredients,
+                    "missing_ingredients": record.missing_ingredients,
+                    "cached": True,
+                },
+            )
+            yield (
+                "ingredients",
+                [item.model_dump() for item in record.ingredients or []],
+            )
+            yield ("steps", [item.model_dump() for item in record.steps or []])
+            yield ("tips", list(record.tips or []))
+            yield ("done", {"cached": True})
+            return
+
+        scoped = await self.scope_loader.load(scope)
+        names = [item.ingredient_name for item in scoped.ingredients]
+        await self.quota.consume(scoped.scope, scoped.cache_owner_id)
+
+        yield (
+            "meta",
+            {
+                "recipe_id": record.recipe_id,
+                "recipe_name": record.recipe_name,
+                "owned_ingredients": record.owned_ingredients,
+                "missing_ingredients": record.missing_ingredients,
+                "cached": False,
+            },
+        )
+
+        try:
+            complete: dict[str, Any] | None = None
+            async for kind, value in self._agent_stream_events(names, record):
+                if kind == "complete":
+                    complete = value if isinstance(value, dict) else None
+                else:
+                    yield (kind, value)
+            if complete is None:
+                raise AgentFailedError("missing complete")
+            updated = record.model_copy(
+                update={
+                    "ingredients": complete["ingredients"],
+                    "steps": complete["steps"],
+                    "tips": complete["tips"],
+                }
+            )
+            await self.cache.set(updated)
+            yield ("done", {"cached": False})
+        except (TimeoutError, AgentFailedError, openai.OpenAIError):
+            logger.exception("AI recipe detail stream failed")
+            yield ("error", {"detail": "AI 레시피 상세 생성에 실패했습니다."})
+
+    async def _agent_stream_events(
+        self,
+        names: list[str],
+        record: AiRecipeCacheRecord,
+    ) -> AsyncIterator[tuple[str, object]]:
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        def run() -> None:
+            try:
+                for item in self.agent.stream_detail(names, record):
+                    loop.call_soon_threadsafe(queue.put_nowait, ("ok", item))
+                loop.call_soon_threadsafe(queue.put_nowait, ("end", None))
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, ("err", exc))
+
+        task = loop.run_in_executor(None, run)
+        deadline = loop.time() + AGENT_TIMEOUT_SECONDS
+        try:
+            while True:
+                timeout = deadline - loop.time()
+                if timeout <= 0:
+                    raise TimeoutError()
+                status, payload = await asyncio.wait_for(queue.get(), timeout=timeout)
+                if status == "end":
+                    break
+                if status == "err":
+                    raise payload
+                kind, value = payload
+                if kind == "complete":
+                    yield (kind, value)
+                else:
+                    yield (kind, _maybe_dump(value))
+            await task
+        except TimeoutError as exc:
+            raise TimeoutError() from exc
 
     @staticmethod
     def _detail_response(

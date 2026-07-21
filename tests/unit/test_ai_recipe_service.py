@@ -581,3 +581,115 @@ async def test_recommend_group_consumes_group_owner(user):
     await service.recommend(refresh=True, scope=RecipeScope.group)
 
     quota.consume.assert_awaited_once_with(RecipeScope.group, group_id)
+
+
+async def test_stream_detail_cache_hit(user):
+    cache = AsyncMock()
+    cache.get.return_value = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란"],
+        owned_ingredients=["계란"],
+        missing_ingredients=[],
+        recipe_difficulty="초급",
+        time="10분",
+        ingredients=[AiRecipeIngredient(name="계란", amount="2개")],
+        steps=[AiRecipeStep(order=1, description="볶는다")],
+        tips=["약불"],
+    )
+    agent = MagicMock()
+    service = AiRecipeService(
+        user=user, scope_loader=AsyncMock(), agent=agent, cache=cache, quota=_quota()
+    )
+
+    events = [e async for e in service.stream_detail("rid")]
+
+    assert events[0][0] == "meta"
+    assert events[0][1]["cached"] is True
+    assert events[1][0] == "ingredients"
+    assert events[-1] == ("done", {"cached": True})
+    agent.stream_detail.assert_not_called()
+    cache.set.assert_not_awaited()
+
+
+async def test_stream_detail_expands_and_caches(user):
+    cache = AsyncMock()
+    summary = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란", "밥"],
+        owned_ingredients=["계란"],
+        missing_ingredients=["밥"],
+        recipe_difficulty="초급",
+        time="10분",
+    )
+    cache.get.return_value = summary
+    agent = MagicMock()
+    agent.stream_detail.return_value = iter(
+        [
+            ("ingredients", [{"name": "계란", "amount": "2개"}]),
+            ("steps", [{"order": 1, "description": "볶는다"}]),
+            ("tips", ["약불"]),
+            (
+                "complete",
+                {
+                    "ingredients": [AiRecipeIngredient(name="계란", amount="2개")],
+                    "steps": [AiRecipeStep(order=1, description="볶는다")],
+                    "tips": ["약불"],
+                },
+            ),
+        ]
+    )
+    item = MagicMock()
+    item.ingredient_name = "계란"
+    scope_loader = _scope_loader([item], cache_owner_id=user.id)
+    quota = _quota()
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=quota
+    )
+
+    events = [e async for e in service.stream_detail("rid")]
+
+    assert events[0][0] == "meta"
+    assert events[0][1]["cached"] is False
+    kinds = [k for k, _ in events]
+    assert kinds == ["meta", "ingredients", "steps", "tips", "done"]
+    cache.set.assert_awaited_once()
+    quota.consume.assert_awaited_once()
+
+
+async def test_stream_detail_error_does_not_cache(user):
+    cache = AsyncMock()
+    cache.get.return_value = AiRecipeCacheRecord(
+        recipe_id="rid",
+        recipe_name="계란볶음밥",
+        recipe_ingredients=["계란"],
+        owned_ingredients=[],
+        missing_ingredients=[],
+    )
+    agent = MagicMock()
+    agent.stream_detail.side_effect = AgentFailedError("fail")
+    scope_loader = _scope_loader([], cache_owner_id=user.id)
+    service = AiRecipeService(
+        user=user, scope_loader=scope_loader, agent=agent, cache=cache, quota=_quota()
+    )
+
+    events = [e async for e in service.stream_detail("rid")]
+
+    assert events[-1][0] == "error"
+    cache.set.assert_not_awaited()
+
+
+async def test_stream_detail_missing_raises(user):
+    cache = AsyncMock()
+    cache.get.return_value = None
+    service = AiRecipeService(
+        user=user,
+        scope_loader=AsyncMock(),
+        agent=MagicMock(),
+        cache=cache,
+        quota=_quota(),
+    )
+
+    with pytest.raises(NotFoundException):
+        _ = [e async for e in service.stream_detail("missing")]
