@@ -27,3 +27,6 @@ Task 2: complete (commits b7b7f87..0336411, review clean; minor: dead sync_sessi
 Task 3: complete (commits 0336411..fd4c864, review clean)
 Task 4: complete (commits fd4c864..973fee9, review clean)
 Task 5: complete (docs cleanup + verification; 254 pytest passed)
+Task 5: complete (254 passed); awaiting final whole-branch review
+Final: Ready to merge — awaiting user integration choice
+Final: merged to main (fast-forward 8fd1191); feature branch deleted
