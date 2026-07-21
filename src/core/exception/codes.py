@@ -31,6 +31,16 @@ class ErrorCode(StrEnum):
     USER_NOT_FOUND = "USER_NOT_FOUND"  # 사용자 없음
 
     # ----------------------------------------
+    # 3-1. 그룹 관련
+    # ----------------------------------------
+    ALREADY_IN_GROUP = "ALREADY_IN_GROUP"
+    GROUP_NOT_FOUND = "GROUP_NOT_FOUND"
+    INVITE_CODE_INVALID = "INVITE_CODE_INVALID"
+    INVALID_INVITE = "INVALID_INVITE"
+    OWNER_CANNOT_LEAVE = "OWNER_CANNOT_LEAVE"
+    INGREDIENT_NAME_CONFLICT = "INGREDIENT_NAME_CONFLICT"
+
+    # ----------------------------------------
     # 4. 식재료 관련
     # ----------------------------------------
     INGREDIENT_NOT_FOUND = "INGREDIENT_NOT_FOUND"  # 식재료 없음
