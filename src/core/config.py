@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     WITHDRAWAL_GRACE_DAYS: int = 7
 
-    EMAIL_BACKEND: str = "console"  # console | smtp
+    EMAIL_BACKEND: str = "smtp"  # console | smtp
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USER: str | None = None
