@@ -38,6 +38,14 @@ DETAIL_SYSTEM = (
 )
 
 
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < 0 or end < start:
+        raise ValueError("no json object")
+    return text[start : end + 1]
+
+
 class AiRecipeAgent:
     def __init__(
         self,
@@ -116,3 +124,51 @@ class AiRecipeAgent:
             "steps": result.steps,
             "tips": result.tips,
         }
+
+    def stream_detail(
+        self,
+        owned_names: list[str],
+        summary: AiRecipeCacheRecord,
+    ):
+        from domains.ai_recipe.partial_json import PartialDetailParser
+
+        messages = [
+            SystemMessage(content=DETAIL_SYSTEM),
+            HumanMessage(
+                content=(
+                    f"Recipe: {summary.recipe_name}\n"
+                    f"Ingredients: {', '.join(summary.recipe_ingredients)}\n"
+                    f"Owned fridge ingredients: {', '.join(owned_names)}\n"
+                    f"Difficulty: {summary.recipe_difficulty}\n"
+                    f"Time: {summary.time}\n"
+                    "Provide ingredient amounts, ordered steps, and tips.\n"
+                    "Respond with a single JSON object with keys "
+                    "ingredients, steps, tips."
+                )
+            ),
+        ]
+        parser = PartialDetailParser()
+        buf = ""
+        try:
+            for chunk in self._llm.stream(messages):
+                text = chunk.content if isinstance(chunk.content, str) else ""
+                if not text:
+                    continue
+                buf += text
+                for event in parser.feed(text):
+                    yield event
+            for event in parser.finish():
+                yield event
+            json_text = _extract_json_object(buf) if "```" in buf else buf
+            payload = AiRecipeDetailPayload.model_validate_json(json_text)
+        except Exception as exc:
+            raise AgentFailedError("recipe detail stream failed") from exc
+
+        yield (
+            "complete",
+            {
+                "ingredients": payload.ingredients,
+                "steps": payload.steps,
+                "tips": payload.tips,
+            },
+        )

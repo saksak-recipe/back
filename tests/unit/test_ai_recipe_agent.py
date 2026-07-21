@@ -105,6 +105,42 @@ def test_run_list_wraps_llm_error_as_cause():
     assert exc_info.value.__cause__ is upstream_error
 
 
+def test_stream_detail_emits_sections_then_complete():
+    chunks = [
+        MagicMock(content='{"ingredients":[{"name":"계란","amount":"2개"}],'),
+        MagicMock(content='"steps":[{"order":1,"description":"볶는다"}],'),
+        MagicMock(content='"tips":["약불"]}'),
+    ]
+    llm = MagicMock()
+    llm.stream.return_value = iter(chunks)
+
+    events = list(
+        AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").stream_detail(
+            ["계란"], _summary()
+        )
+    )
+
+    assert events[0][0] == "ingredients"
+    assert events[1][0] == "steps"
+    assert events[2][0] == "tips"
+    assert events[3][0] == "complete"
+    assert events[3][1]["tips"] == ["약불"]
+    llm.stream.assert_called_once()
+    llm.with_structured_output.assert_not_called()
+
+
+def test_stream_detail_raises_on_invalid_final_json():
+    llm = MagicMock()
+    llm.stream.return_value = iter([MagicMock(content='{"ingredients":[}')])
+
+    with pytest.raises(AgentFailedError):
+        list(
+            AiRecipeAgent(llm=llm, model_name="gpt-4o-mini").stream_detail(
+                ["계란"], _summary()
+            )
+        )
+
+
 def test_run_detail_wraps_llm_error_as_cause():
     structured = MagicMock()
     upstream_error = RuntimeError("openai unavailable")
