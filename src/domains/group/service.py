@@ -449,6 +449,7 @@ class GroupService:
         deleted = await self.shopping_repo.delete_in_group(item_id, membership.group_id)
         if not deleted:
             raise ShoppingItemNotFoundException()
+        self._schedule_ai_recipe_list_invalidation(membership.group_id)
         return _to_add_response(saved[0])
 
     async def merge(self, request: MergeRequest) -> MergeResponse:

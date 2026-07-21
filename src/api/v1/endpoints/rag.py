@@ -32,6 +32,7 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
     response_model=RecipeRecommendationResponse,
     responses=create_error_response(
         UnAuthorizedException,
+        NotFoundException,
         ExternalServiceException,
         DatabaseException,
     ),
@@ -50,6 +51,7 @@ async def recommend_recipes(
     response_model=AiRecipeRecommendationResponse,
     responses=create_error_response(
         UnAuthorizedException,
+        NotFoundException,
         ExternalServiceException,
         DatabaseException,
     ),

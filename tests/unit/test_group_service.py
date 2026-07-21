@@ -575,6 +575,31 @@ async def test_merge_rejects_foreign_personal_item_id(db_session, test_user):
 
 
 @pytest.mark.asyncio
+async def test_shopping_to_ingredient_invalidates_ai_list_cache(db_session, test_user):
+    list_cache = AsyncMock()
+    service = _service(test_user, db_session, list_cache=list_cache)
+    await service.create(CreateGroupRequest(name="우리집"))
+    membership = await GroupRepository(db_session).get_membership(test_user.id)
+    assert membership is not None
+    shopping_item = (
+        await service.add_shopping_items(AddShoppingItemsRequest(names=["양파"]))
+    )[0]
+    await db_session.commit()
+    await asyncio.sleep(0)
+    list_cache.invalidate_list.reset_mock()
+
+    await service.shopping_to_ingredient(shopping_item.id)
+    list_cache.invalidate_list.assert_not_awaited()
+
+    await db_session.commit()
+    await asyncio.sleep(0)
+
+    list_cache.invalidate_list.assert_awaited_once_with(
+        membership.group_id, scope=RecipeScope.group
+    )
+
+
+@pytest.mark.asyncio
 async def test_add_group_ingredients_invalidates_ai_list_cache(db_session):
     owner = await _add_user(db_session, "o@t.com", "owner1")
     svc = _service(owner, db_session)
