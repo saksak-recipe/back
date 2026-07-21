@@ -1,6 +1,9 @@
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+IngredientStatus = Literal["expired", "soon", "ok", "unknown"]
 
 
 class AddIngredientRequest(BaseModel):
@@ -40,6 +43,7 @@ class AddIngredientResponse(BaseModel):
     ingredient_name: str
     purchase_date: date
     expiration_date: date | None = None
+    status: IngredientStatus
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -49,5 +53,6 @@ class GetIngredientResponse(BaseModel):
     ingredient_name: str
     purchase_date: date
     expiration_date: date | None = None
+    status: IngredientStatus
 
     model_config = ConfigDict(from_attributes=True)

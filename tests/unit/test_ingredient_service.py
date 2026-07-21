@@ -4,10 +4,12 @@ from unittest.mock import AsyncMock
 import pytest
 import uuid6
 
+from datetime import datetime, timezone
+
 from core.exception.exceptions import BadRequestException, IngredientNotFoundException
 from domains.ingredient.model import Ingredient
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
-from domains.ingredient.service import IngredientService
+from domains.ingredient.service import IngredientService, compute_status
 from domains.user.model import User
 
 
@@ -57,6 +59,16 @@ async def test_add_ingredients_returns_saved_items(
     assert len(result) == 2
     assert result[0].ingredient_name == "양파"
     assert result[1].ingredient_name == "당근"
+    assert result[0].status == "unknown"
+
+
+async def test_compute_status_boundaries():
+    today = date.today()
+    assert compute_status(None, today) == "unknown"
+    assert compute_status(today - timedelta(days=1), today) == "expired"
+    assert compute_status(today, today) == "soon"
+    assert compute_status(today + timedelta(days=3), today) == "soon"
+    assert compute_status(today + timedelta(days=4), today) == "ok"
 
 
 async def test_add_ingredients_sets_expiration_date(
@@ -84,6 +96,7 @@ async def test_add_ingredients_sets_expiration_date(
     )
 
     assert result[0].expiration_date == expiration
+    assert result[0].status == "ok"
     created = ingredient_repo.add_ingredient.await_args.args[0]
     assert created[0].expiration_date == expiration
 
@@ -117,7 +130,75 @@ async def test_get_ingredients_returns_user_items(
     result = await ingredient_service.get_ingredients()
 
     assert len(result) == 1
+    assert result[0].status == "unknown"
     ingredient_repo.get_ingredients.assert_awaited_once_with(user.id)
+
+
+async def test_get_ingredients_sorts_by_status(
+    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+):
+    today = date.today()
+    older = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    newer = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    ingredient_repo.get_ingredients.return_value = [
+        Ingredient(
+            id=1,
+            user_id=user.id,
+            ingredient_name="여유",
+            purchase_date=today,
+            expiration_date=today + timedelta(days=4),
+            created_at=older,
+        ),
+        Ingredient(
+            id=2,
+            user_id=user.id,
+            ingredient_name="미설정새것",
+            purchase_date=today,
+            expiration_date=None,
+            created_at=newer,
+        ),
+        Ingredient(
+            id=3,
+            user_id=user.id,
+            ingredient_name="만료",
+            purchase_date=today - timedelta(days=5),
+            expiration_date=today - timedelta(days=1),
+            created_at=older,
+        ),
+        Ingredient(
+            id=4,
+            user_id=user.id,
+            ingredient_name="임박",
+            purchase_date=today,
+            expiration_date=today + timedelta(days=1),
+            created_at=older,
+        ),
+        Ingredient(
+            id=5,
+            user_id=user.id,
+            ingredient_name="미설정옛것",
+            purchase_date=today,
+            expiration_date=None,
+            created_at=older,
+        ),
+    ]
+
+    result = await ingredient_service.get_ingredients()
+
+    assert [item.ingredient_name for item in result] == [
+        "만료",
+        "임박",
+        "여유",
+        "미설정새것",
+        "미설정옛것",
+    ]
+    assert [item.status for item in result] == [
+        "expired",
+        "soon",
+        "ok",
+        "unknown",
+        "unknown",
+    ]
 
 
 async def test_update_ingredient_partial_fields(
@@ -143,6 +224,7 @@ async def test_update_ingredient_partial_fields(
 
     assert result.ingredient_name == "빨간양파"
     assert result.expiration_date == expiration
+    assert result.status == "soon"
     ingredient_repo.get_by_id.assert_awaited_once_with(1, user.id)
 
 

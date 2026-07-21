@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from core.exception.exceptions import BadRequestException, IngredientNotFoundException
 from domains.ingredient.model import Ingredient
@@ -7,9 +7,19 @@ from domains.ingredient.schemas import (
     AddIngredientRequest,
     AddIngredientResponse,
     GetIngredientResponse,
+    IngredientStatus,
     UpdateIngredientRequest,
 )
 from domains.user.model import User
+
+SOON_WITHIN_DAYS = 3
+
+_STATUS_RANK: dict[IngredientStatus, int] = {
+    "expired": 0,
+    "soon": 1,
+    "ok": 2,
+    "unknown": 3,
+}
 
 
 def _ensure_expiration_valid(
@@ -17,6 +27,56 @@ def _ensure_expiration_valid(
 ) -> None:
     if expiration_date is not None and expiration_date < purchase_date:
         raise BadRequestException(detail="유통기한은 구매일 이후여야 합니다.")
+
+
+def compute_status(
+    expiration_date: date | None, today: date | None = None
+) -> IngredientStatus:
+    today = today or date.today()
+    if expiration_date is None:
+        return "unknown"
+    if expiration_date < today:
+        return "expired"
+    if expiration_date <= today + timedelta(days=SOON_WITHIN_DAYS):
+        return "soon"
+    return "ok"
+
+
+def _to_get_response(
+    ingredient: Ingredient, today: date | None = None
+) -> GetIngredientResponse:
+    today = today or date.today()
+    return GetIngredientResponse(
+        id=ingredient.id,
+        ingredient_name=ingredient.ingredient_name,
+        purchase_date=ingredient.purchase_date,
+        expiration_date=ingredient.expiration_date,
+        status=compute_status(ingredient.expiration_date, today),
+    )
+
+
+def _to_add_response(
+    ingredient: Ingredient, today: date | None = None
+) -> AddIngredientResponse:
+    today = today or date.today()
+    return AddIngredientResponse(
+        id=ingredient.id,
+        ingredient_name=ingredient.ingredient_name,
+        purchase_date=ingredient.purchase_date,
+        expiration_date=ingredient.expiration_date,
+        status=compute_status(ingredient.expiration_date, today),
+    )
+
+
+def _list_sort_key(ingredient: Ingredient, today: date) -> tuple:
+    status = compute_status(ingredient.expiration_date, today)
+    rank = _STATUS_RANK[status]
+    if status == "unknown":
+        created = ingredient.created_at
+        ts = created.timestamp() if created is not None else 0.0
+        return (rank, -ts)
+    assert ingredient.expiration_date is not None
+    return (rank, ingredient.expiration_date.toordinal())
 
 
 class IngredientService:
@@ -38,11 +98,16 @@ class IngredientService:
             for name in request.ingredients
         ]
         saved = await self.ingredient_repo.add_ingredient(ingredients)
-        return [AddIngredientResponse.model_validate(item) for item in saved]
+        today = date.today()
+        return [_to_add_response(item, today) for item in saved]
 
     async def get_ingredients(self) -> list[GetIngredientResponse]:
         ingredients = await self.ingredient_repo.get_ingredients(self.user.id)
-        return [GetIngredientResponse.model_validate(item) for item in ingredients]
+        today = date.today()
+        sorted_items = sorted(
+            ingredients, key=lambda item: _list_sort_key(item, today)
+        )
+        return [_to_get_response(item, today) for item in sorted_items]
 
     async def update_ingredient(
         self, ingredient_id: int, request: UpdateIngredientRequest
@@ -64,7 +129,7 @@ class IngredientService:
 
         _ensure_expiration_valid(ingredient.purchase_date, ingredient.expiration_date)
 
-        return GetIngredientResponse.model_validate(ingredient)
+        return _to_get_response(ingredient)
 
     async def delete_ingredient(self, ingredient_id: int) -> None:
         deleted = await self.ingredient_repo.delete_ingredient(

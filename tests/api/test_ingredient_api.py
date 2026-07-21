@@ -31,6 +31,7 @@ async def test_add_and_list_ingredients(client: AsyncClient, auth_headers: dict[
     assert added[0]["ingredient_name"] == "양파"
     assert added[1]["ingredient_name"] == "당근"
     assert added[0]["expiration_date"] is None
+    assert added[0]["status"] == "unknown"
 
     list_response = await client.get("/api/v1/ingredients", headers=auth_headers)
 
@@ -38,6 +39,7 @@ async def test_add_and_list_ingredients(client: AsyncClient, auth_headers: dict[
     ingredients = list_response.json()
     assert len(ingredients) == 2
     assert {item["ingredient_name"] for item in ingredients} == {"양파", "당근"}
+    assert all(item["status"] == "unknown" for item in ingredients)
 
 
 async def test_add_ingredients_with_expiration_date(
@@ -59,6 +61,51 @@ async def test_add_ingredients_with_expiration_date(
     assert add_response.status_code == 201
     body = add_response.json()
     assert body[0]["expiration_date"] == expiration.isoformat()
+    assert body[0]["status"] == "ok"
+
+
+async def test_list_ingredients_status_boundaries_and_sort(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    today = date.today()
+    cases = [
+        ("만료", today - timedelta(days=1)),
+        ("오늘임박", today),
+        ("D3임박", today + timedelta(days=3)),
+        ("여유", today + timedelta(days=4)),
+        ("미설정", None),
+    ]
+    for name, expiration in cases:
+        payload: dict = {
+            "ingredients": [name],
+            "purchase_date": (today - timedelta(days=10)).isoformat(),
+        }
+        if expiration is not None:
+            payload["expiration_date"] = expiration.isoformat()
+        response = await client.post(
+            "/api/v1/ingredients",
+            headers=auth_headers,
+            json=payload,
+        )
+        assert response.status_code == 201
+
+    list_response = await client.get("/api/v1/ingredients", headers=auth_headers)
+    assert list_response.status_code == 200
+    items = list_response.json()
+    assert [item["ingredient_name"] for item in items] == [
+        "만료",
+        "오늘임박",
+        "D3임박",
+        "여유",
+        "미설정",
+    ]
+    assert [item["status"] for item in items] == [
+        "expired",
+        "soon",
+        "soon",
+        "ok",
+        "unknown",
+    ]
 
 
 async def test_add_ingredients_rejects_expiration_before_purchase(
@@ -104,6 +151,7 @@ async def test_update_ingredient(client: AsyncClient, auth_headers: dict[str, st
     body = patch_response.json()
     assert body["ingredient_name"] == "빨간양파"
     assert body["expiration_date"] == expiration
+    assert body["status"] == "soon"
 
 
 async def test_update_ingredient_clears_expiration(
@@ -130,6 +178,7 @@ async def test_update_ingredient_clears_expiration(
 
     assert patch_response.status_code == 200
     assert patch_response.json()["expiration_date"] is None
+    assert patch_response.json()["status"] == "unknown"
 
 
 async def test_update_ingredient_empty_body_returns_bad_request(
