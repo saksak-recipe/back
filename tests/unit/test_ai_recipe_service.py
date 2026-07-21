@@ -1,4 +1,5 @@
 import time
+from datetime import date, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import openai
@@ -44,6 +45,7 @@ async def test_recommend_caches_five(user):
     repo = AsyncMock()
     item = MagicMock()
     item.ingredient_name = "계란"
+    item.expiration_date = None
     repo.get_ingredients.return_value = [item]
     agent = MagicMock()
     agent.run_list.return_value = [
@@ -68,6 +70,30 @@ async def test_recommend_caches_five(user):
     assert result.recipes[0].missing_ingredients == ["밥"]
     assert result.recipes[0].source == "ai"
     assert cache.set.await_count == 5
+    agent.run_list.assert_called_once_with(["계란"], [])
+
+
+async def test_recommend_passes_urgent_names_and_retries_once(user):
+    repo = AsyncMock()
+    item = MagicMock()
+    item.ingredient_name = "계란"
+    item.expiration_date = date.today() + timedelta(days=1)
+    repo.get_ingredients.return_value = [item]
+    candidates = [
+        AiRecipeCandidate(recipe_name=f"요리{i}", recipe_ingredients=["계란"])
+        for i in range(5)
+    ]
+    agent = MagicMock()
+    agent.run_list.side_effect = [TimeoutError(), candidates]
+    service = AiRecipeService(
+        user=user, ingredient_repo=repo, agent=agent, cache=AsyncMock()
+    )
+
+    result = await service.recommend()
+
+    assert len(result.recipes) == 5
+    assert agent.run_list.call_count == 2
+    agent.run_list.assert_called_with(["계란"], ["계란"])
 
 
 @pytest.mark.parametrize(
@@ -81,6 +107,7 @@ async def test_recommend_maps_agent_failure(user, agent_error):
     repo = AsyncMock()
     item = MagicMock()
     item.ingredient_name = "계란"
+    item.expiration_date = None
     repo.get_ingredients.return_value = [item]
     agent = MagicMock()
     agent.run_list.side_effect = agent_error
@@ -93,6 +120,7 @@ async def test_recommend_maps_agent_failure(user, agent_error):
         ExternalServiceException, match="AI 레시피 생성에 실패했습니다."
     ):
         await service.recommend()
+    assert agent.run_list.call_count == 2
 
 
 async def test_recommend_maps_agent_timeout(user, monkeypatch):
@@ -100,9 +128,10 @@ async def test_recommend_maps_agent_timeout(user, monkeypatch):
     repo = AsyncMock()
     item = MagicMock()
     item.ingredient_name = "계란"
+    item.expiration_date = None
     repo.get_ingredients.return_value = [item]
     agent = MagicMock()
-    agent.run_list.side_effect = lambda _names: time.sleep(0.05)
+    agent.run_list.side_effect = lambda _names, _urgent: time.sleep(0.05)
     service = AiRecipeService(
         user=user, ingredient_repo=repo, agent=agent, cache=AsyncMock()
     )
@@ -111,6 +140,7 @@ async def test_recommend_maps_agent_timeout(user, monkeypatch):
         ExternalServiceException, match="AI 레시피 생성에 실패했습니다."
     ):
         await service.recommend()
+    assert agent.run_list.call_count == 2
 
 
 async def test_detail_not_found(user):

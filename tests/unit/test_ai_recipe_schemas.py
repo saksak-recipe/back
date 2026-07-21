@@ -1,5 +1,10 @@
+import pytest
+from pydantic import ValidationError
+
 from domains.ai_recipe.schemas import (
     AiRecipeCacheRecord,
+    AiRecipeCandidate,
+    AiRecipeCandidateList,
     AiRecipeRecommendation,
     AiRecipeRecommendationResponse,
 )
@@ -37,3 +42,15 @@ def test_cache_record_optional_detail():
     assert record.ingredients is None
     assert record.steps is None
     assert record.tips is None
+
+
+def test_candidate_list_requires_exactly_five_recipes():
+    recipe = AiRecipeCandidate(recipe_name="계란찜")
+
+    with pytest.raises(ValidationError):
+        AiRecipeCandidateList(recipes=[recipe] * 4)
+
+    assert len(AiRecipeCandidateList(recipes=[recipe] * 5).recipes) == 5
+
+    with pytest.raises(ValidationError):
+        AiRecipeCandidateList(recipes=[recipe] * 6)
