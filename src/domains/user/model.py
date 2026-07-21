@@ -2,7 +2,7 @@ from datetime import datetime
 
 import uuid6  # 추후 인덱싱 고려했을 때, uuid와 다르게 uuid6 라이브러리를 사용했을 경우, 생성된 시간 정보가 앞에 들어감. 물론 여기서 uuid6를 배정하진 않음
 
-from sqlalchemy import String, DateTime, func, Index
+from sqlalchemy import Boolean, String, DateTime, func, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,9 @@ class User(Base):
     password: Mapped[str | None] = mapped_column(String(128), nullable=True)
     kakao_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     nickname: Mapped[str] = mapped_column(String(20))
+    is_email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
