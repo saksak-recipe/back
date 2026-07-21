@@ -47,6 +47,12 @@ def test_classify_ingredients_exact_normalized_match():
     assert missing == ["밥", "어묵"]
 
 
+def test_classify_ingredients_synonym_match():
+    owned, missing = classify_ingredients(["달걀", "밥"], ["계란"])
+    assert owned == ["달걀"]
+    assert missing == ["밥"]
+
+
 def test_map_document_to_recipe():
     doc = Document(
         page_content="recipe_name: 계란볶음밥\nparsed_ingredients: 계란, 밥, 대파",

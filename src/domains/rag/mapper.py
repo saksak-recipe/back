@@ -1,14 +1,14 @@
 from langchain_core.documents import Document
 
+from domains.ingredient_matching.matching import (
+    classify_ingredients,
+    normalize_name,
+)
 from domains.rag.schemas import RecipeRecommendation
 
 
 def build_ingredient_query(names: list[str]) -> str:
     return "parsed_ingredients: " + ", ".join(names)
-
-
-def normalize_name(name: str) -> str:
-    return name.strip().casefold().replace(" ", "")
 
 
 def is_recipe_name_in_ingredients(
@@ -45,20 +45,6 @@ def split_ingredient_names(raw: str) -> list[str]:
         seen.add(key)
         names.append(name)
     return names
-
-
-def classify_ingredients(
-    recipe_ingredients: list[str], owned_names: list[str]
-) -> tuple[list[str], list[str]]:
-    owned_set = {normalize_name(n) for n in owned_names if normalize_name(n)}
-    owned: list[str] = []
-    missing: list[str] = []
-    for name in recipe_ingredients:
-        if normalize_name(name) in owned_set:
-            owned.append(name)
-        else:
-            missing.append(name)
-    return owned, missing
 
 
 def map_document_to_recipe(
