@@ -49,4 +49,4 @@ class UserService:
         user = await self.user_repo.get_user_by_id(user_id)
         if not user:
             raise UserNotFoundException()
-        return UserInfoResponse.model_validate(user)
+        return UserInfoResponse.from_user(user)

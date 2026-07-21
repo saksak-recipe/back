@@ -41,7 +41,7 @@ class AuthService:
 
     def _to_auth_response(self, user: User, tokens: TokenPair) -> LogInResponse:
         return LogInResponse(
-            info=UserInfoResponse.model_validate(user),
+            info=UserInfoResponse.from_user(user),
             access_token=tokens.access_token,
             refresh_token=tokens.refresh_token,
         )
@@ -50,7 +50,7 @@ class AuthService:
         self, user: User, tokens: TokenPair
     ) -> KakaoAuthResponse:
         return KakaoAuthResponse(
-            info=UserInfoResponse.model_validate(user),
+            info=UserInfoResponse.from_user(user),
             access_token=tokens.access_token,
             refresh_token=tokens.refresh_token,
         )
