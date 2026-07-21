@@ -27,6 +27,7 @@ from domains.ingredient.model import Ingredient
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.scope import RecipeScope
+from domains.notification.repository import NotificationRepository
 from domains.shopping.model import ShoppingItem
 from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
 from domains.shopping.repository import ShoppingRepository
@@ -43,6 +44,7 @@ def _service(
         user_repo=UserRepository(db_session),
         ingredient_repo=IngredientRepository(db_session),
         shopping_repo=ShoppingRepository(db_session),
+        notification_repo=NotificationRepository(db_session),
         list_cache=list_cache,
     )
 
@@ -196,6 +198,14 @@ async def test_invite_by_nickname_is_idempotent_and_listed_for_invitee(
     assert first.inviter_nickname == test_user.nickname
     assert first.status == InviteStatus.pending.value
     assert [invite.id for invite in invites] == [first.id]
+
+    notif_repo = NotificationRepository(db_session)
+    invitee_notifs = await notif_repo.list_by_user(invitee.id)
+    assert len(invitee_notifs) == 1
+    assert invitee_notifs[0].type == "group_invite"
+    assert invitee_notifs[0].reference_key == f"group_invite:{first.id}"
+    owner_notifs = await notif_repo.list_by_user(test_user.id)
+    assert owner_notifs == []
 
 
 @pytest.mark.asyncio

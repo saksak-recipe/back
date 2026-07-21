@@ -122,3 +122,11 @@ class IngredientNotFoundException(NotFoundException):
 class ShoppingItemNotFoundException(NotFoundException):
     def __init__(self, detail: str = "장보기 항목을 찾을 수 없습니다."):
         super().__init__(code=ErrorCode.SHOPPING_ITEM_NOT_FOUND, detail=detail)
+
+
+# ----------------------------------------
+# 6. 알림 관련
+# ----------------------------------------
+class NotificationNotFoundException(NotFoundException):
+    def __init__(self, detail: str = "알림을 찾을 수 없습니다."):
+        super().__init__(code=ErrorCode.NOTIFICATION_NOT_FOUND, detail=detail)
