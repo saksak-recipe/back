@@ -22,6 +22,8 @@ from domains.recipe_detail.crawler import RecipeCrawler
 from domains.recipe_detail.service import RecipeDetailService
 from domains.saved_recipe.repository import SavedRecipeRepository
 from domains.saved_recipe.service import SavedRecipeService
+from domains.group.repository import GroupRepository
+from domains.group.service import GroupService
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.service import ShoppingService
 
@@ -143,4 +145,17 @@ def get_saved_recipe_service(
         repo=repo,
         ai_recipe_service=ai_recipe_service,
         recipe_detail_service=recipe_detail_service,
+    )
+
+
+def get_group_service(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> GroupService:
+    return GroupService(
+        user=user,
+        group_repo=GroupRepository(session),
+        user_repo=UserRepository(session),
+        ingredient_repo=IngredientRepository(session),
+        shopping_repo=ShoppingRepository(session),
     )

@@ -41,6 +41,7 @@ class GroupRepository:
                 select(Group)
                 .where(Group.id == group_id)
                 .options(selectinload(Group.members))
+                .execution_options(populate_existing=True)
             )
             result = await self.session.execute(stmt)
             return result.scalar_one_or_none()
