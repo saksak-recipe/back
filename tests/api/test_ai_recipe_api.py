@@ -249,3 +249,89 @@ async def test_ai_detail_passes_group_scope(
         mock.get_detail.assert_awaited_once_with("rid", scope=RecipeScope.group)
     finally:
         app.dependency_overrides.pop(get_ai_recipe_service, None)
+
+
+async def test_ai_detail_stream_requires_auth(client: AsyncClient):
+    response = await client.get(
+        "/api/v1/recipes/ai/detail/stream",
+        params={"recipe_id": "rid"},
+    )
+    assert response.status_code == 401
+
+
+async def test_ai_detail_stream_404(client: AsyncClient, auth_headers: dict[str, str]):
+    async def _gen():
+        raise NotFoundException(detail="AI 레시피를 찾지 못했습니다.")
+        yield  # pragma: no cover
+
+    mock = MagicMock()
+    mock.stream_detail = MagicMock(return_value=_gen())
+    app.dependency_overrides[get_ai_recipe_service] = lambda: mock
+    try:
+        response = await client.get(
+            "/api/v1/recipes/ai/detail/stream",
+            headers=auth_headers,
+            params={"recipe_id": "missing"},
+        )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_ai_recipe_service, None)
+
+
+async def test_ai_detail_stream_429(client: AsyncClient, auth_headers: dict[str, str]):
+    async def _gen():
+        raise TooManyRequestsException()
+        yield  # pragma: no cover
+
+    mock = MagicMock()
+    mock.stream_detail = MagicMock(return_value=_gen())
+    app.dependency_overrides[get_ai_recipe_service] = lambda: mock
+    try:
+        response = await client.get(
+            "/api/v1/recipes/ai/detail/stream",
+            headers=auth_headers,
+            params={"recipe_id": "rid"},
+        )
+        assert response.status_code == 429
+        assert response.json()["code"] == ErrorCode.AI_QUOTA_EXCEEDED
+    finally:
+        app.dependency_overrides.pop(get_ai_recipe_service, None)
+
+
+async def test_ai_detail_stream_sse_body(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    async def _gen():
+        yield (
+            "meta",
+            {
+                "recipe_id": "rid",
+                "recipe_name": "계란볶음밥",
+                "owned_ingredients": ["계란"],
+                "missing_ingredients": [],
+                "cached": True,
+            },
+        )
+        yield ("ingredients", [{"name": "계란", "amount": "2개"}])
+        yield ("steps", [{"order": 1, "description": "볶는다"}])
+        yield ("tips", ["약불"])
+        yield ("done", {"cached": True})
+
+    mock = MagicMock()
+    mock.stream_detail = MagicMock(return_value=_gen())
+    app.dependency_overrides[get_ai_recipe_service] = lambda: mock
+    try:
+        response = await client.get(
+            "/api/v1/recipes/ai/detail/stream",
+            headers=auth_headers,
+            params={"recipe_id": "rid"},
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        body = response.text
+        assert "event: meta" in body
+        assert "event: ingredients" in body
+        assert "event: done" in body
+        mock.stream_detail.assert_called_once_with("rid", scope=RecipeScope.personal)
+    finally:
+        app.dependency_overrides.pop(get_ai_recipe_service, None)
