@@ -21,6 +21,8 @@ from domains.group.schemas import (
 from domains.group.service import GroupService
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
+from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
+from domains.shopping.repository import ShoppingRepository
 from domains.user.model import User
 from domains.user.repository import UserRepository
 
@@ -31,6 +33,7 @@ def _service(user: User, db_session) -> GroupService:
         group_repo=GroupRepository(db_session),
         user_repo=UserRepository(db_session),
         ingredient_repo=IngredientRepository(db_session),
+        shopping_repo=ShoppingRepository(db_session),
     )
 
 
@@ -338,4 +341,75 @@ async def test_group_add_ingredients_rejects_conflict_without_partial_insert(
         await service.add_ingredients(AddIngredientRequest(ingredients=["당근", "양파"]))
 
     assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    assert [item.ingredient_name for item in await service.list_ingredients()] == ["양파"]
+
+
+@pytest.mark.asyncio
+async def test_group_member_can_manage_group_shopping_items(db_session, test_user):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+
+    added = await service.add_shopping_items(
+        AddShoppingItemsRequest(names=["양파", "당근"])
+    )
+    listed = await service.list_shopping_items()
+    updated = await service.update_shopping_item(
+        added[0].id, UpdateShoppingItemRequest(is_checked=True)
+    )
+
+    assert [item.name for item in listed] == ["양파", "당근"]
+    assert updated.is_checked is True
+
+    await service.delete_shopping_item(added[1].id)
+    await service.delete_all_shopping_items()
+
+    assert await service.list_shopping_items() == []
+
+
+@pytest.mark.asyncio
+async def test_group_shopping_add_skips_existing_names(db_session, test_user):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    await service.add_shopping_items(AddShoppingItemsRequest(names=["양파"]))
+
+    added = await service.add_shopping_items(
+        AddShoppingItemsRequest(names=["양파", "당근", "당근"])
+    )
+
+    assert [item.name for item in added] == ["당근"]
+    assert [item.name for item in await service.list_shopping_items()] == ["양파", "당근"]
+
+
+@pytest.mark.asyncio
+async def test_group_shopping_to_ingredient_preserves_item_on_name_conflict(
+    db_session, test_user
+):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    shopping_item = (
+        await service.add_shopping_items(AddShoppingItemsRequest(names=["양파"]))
+    )[0]
+    await service.add_ingredients(AddIngredientRequest(ingredients=["양파"]))
+
+    with pytest.raises(ConflictException) as exc:
+        await service.shopping_to_ingredient(shopping_item.id)
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    assert [item.name for item in await service.list_shopping_items()] == ["양파"]
+
+
+@pytest.mark.asyncio
+async def test_group_shopping_to_ingredient_creates_group_ingredient(
+    db_session, test_user
+):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    shopping_item = (
+        await service.add_shopping_items(AddShoppingItemsRequest(names=["양파"]))
+    )[0]
+
+    ingredient = await service.shopping_to_ingredient(shopping_item.id)
+
+    assert ingredient.ingredient_name == "양파"
+    assert await service.list_shopping_items() == []
     assert [item.ingredient_name for item in await service.list_ingredients()] == ["양파"]

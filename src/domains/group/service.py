@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import date
-from typing import TYPE_CHECKING
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from core.exception.codes import ErrorCode
@@ -12,6 +11,7 @@ from core.exception.exceptions import (
     ForbiddenException,
     IngredientNotFoundException,
     NotFoundException,
+    ShoppingItemNotFoundException,
     UserNotFoundException,
 )
 from domains.group.model import Group, GroupInvite, GroupMember, GroupRole, InviteStatus
@@ -39,11 +39,15 @@ from domains.ingredient.service import (
     _to_add_response,
     _to_get_response,
 )
+from domains.shopping.model import ShoppingItem
+from domains.shopping.repository import ShoppingRepository
+from domains.shopping.schemas import (
+    AddShoppingItemsRequest,
+    ShoppingItemResponse,
+    UpdateShoppingItemRequest,
+)
 from domains.user.model import User
 from domains.user.repository import UserRepository
-
-if TYPE_CHECKING:
-    from domains.shopping.repository import ShoppingRepository
 
 
 class GroupService:
@@ -53,7 +57,7 @@ class GroupService:
         group_repo: GroupRepository,
         user_repo: UserRepository,
         ingredient_repo: IngredientRepository,
-        shopping_repo: ShoppingRepository | None = None,
+        shopping_repo: ShoppingRepository,
     ) -> None:
         self.user = user
         self.group_repo = group_repo
@@ -287,6 +291,93 @@ class GroupService:
     async def delete_all_ingredients(self) -> None:
         membership, _ = await self._require_membership()
         await self.ingredient_repo.delete_all_in_group(membership.group_id)
+
+    async def list_shopping_items(self) -> list[ShoppingItemResponse]:
+        membership, _ = await self._require_membership()
+        items = await self.shopping_repo.list_by_group(membership.group_id)
+        sorted_items = sorted(
+            items,
+            key=lambda item: (
+                item.is_checked,
+                item.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            ),
+        )
+        return [ShoppingItemResponse.model_validate(item) for item in sorted_items]
+
+    async def add_shopping_items(
+        self, request: AddShoppingItemsRequest
+    ) -> list[ShoppingItemResponse]:
+        membership, _ = await self._require_membership()
+        unique_names = list(dict.fromkeys(request.names))
+        existing = await self.shopping_repo.get_existing_names_in_group(
+            membership.group_id, unique_names
+        )
+        items = [
+            ShoppingItem(
+                user_id=self.user.id,
+                group_id=membership.group_id,
+                name=name,
+                is_checked=False,
+            )
+            for name in unique_names
+            if name not in existing
+        ]
+        saved = await self.shopping_repo.add_items_in_group(items)
+        return [ShoppingItemResponse.model_validate(item) for item in saved]
+
+    async def update_shopping_item(
+        self, item_id: int, request: UpdateShoppingItemRequest
+    ) -> ShoppingItemResponse:
+        membership, _ = await self._require_membership()
+        item = await self.shopping_repo.get_by_id_in_group(
+            item_id, membership.group_id
+        )
+        if item is None:
+            raise ShoppingItemNotFoundException()
+        item.is_checked = request.is_checked
+        return ShoppingItemResponse.model_validate(item)
+
+    async def delete_shopping_item(self, item_id: int) -> None:
+        membership, _ = await self._require_membership()
+        deleted = await self.shopping_repo.delete_in_group(item_id, membership.group_id)
+        if not deleted:
+            raise ShoppingItemNotFoundException()
+
+    async def delete_all_shopping_items(self) -> None:
+        membership, _ = await self._require_membership()
+        await self.shopping_repo.delete_all_in_group(membership.group_id)
+
+    async def shopping_to_ingredient(self, item_id: int) -> AddIngredientResponse:
+        membership, _ = await self._require_membership()
+        item = await self.shopping_repo.get_by_id_in_group(item_id, membership.group_id)
+        if item is None:
+            raise ShoppingItemNotFoundException()
+        if (
+            await self.ingredient_repo.find_name_in_group(
+                membership.group_id, item.name
+            )
+            is not None
+        ):
+            raise ConflictException(
+                code=ErrorCode.INGREDIENT_NAME_CONFLICT,
+                detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
+            )
+
+        saved = await self.ingredient_repo.add_ingredient(
+            [
+                Ingredient(
+                    user_id=self.user.id,
+                    group_id=membership.group_id,
+                    ingredient_name=item.name,
+                    purchase_date=date.today(),
+                    expiration_date=None,
+                )
+            ]
+        )
+        deleted = await self.shopping_repo.delete_in_group(item_id, membership.group_id)
+        if not deleted:
+            raise ShoppingItemNotFoundException()
+        return _to_add_response(saved[0])
 
     async def _require_membership(self) -> tuple[GroupMember, Group]:
         membership = await self.group_repo.get_membership(self.user.id)

@@ -6,6 +6,7 @@ import uuid6
 
 from core.exception.exceptions import ShoppingItemNotFoundException
 from domains.ingredient.model import Ingredient
+from domains.ingredient.repository import IngredientRepository
 from domains.shopping.model import ShoppingItem
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
@@ -251,3 +252,43 @@ async def test_to_ingredient_not_found_raises(
         await shopping_service.to_ingredient(999)
 
     ingredient_repo.add_ingredient.assert_not_awaited()
+
+
+async def test_personal_shopping_service_excludes_group_items(
+    db_session,
+    test_user: User,
+):
+    repository = ShoppingRepository(db_session)
+    service = ShoppingService(
+        user=test_user,
+        shopping_repo=repository,
+        ingredient_repo=IngredientRepository(db_session),
+    )
+    personal = (
+        await repository.add_items(
+            [ShoppingItem(user_id=test_user.id, name="개인 장보기", is_checked=False)]
+        )
+    )[0]
+    group = (
+        await repository.add_items_in_group(
+            [
+                ShoppingItem(
+                    user_id=test_user.id,
+                    group_id=uuid6.uuid7(),
+                    name="그룹 장보기",
+                    is_checked=False,
+                )
+            ]
+        )
+    )[0]
+
+    assert [item.name for item in await service.list_items()] == ["개인 장보기"]
+    with pytest.raises(ShoppingItemNotFoundException):
+        await service.update_item(
+            group.id, UpdateShoppingItemRequest(is_checked=True)
+        )
+
+    await service.delete_all()
+
+    assert await repository.get_by_id(personal.id, test_user.id) is None
+    assert group in await repository.list_by_group(group.group_id)
