@@ -9,10 +9,6 @@ from domains.auth.email_service import EmailService
 from domains.auth.refresh_store import RefreshTokenStore
 from domains.auth.signup_pending_store import SignupPendingStore
 from domains.auth.verification_store import VerificationCodeStore
-from domains.ai_recipe.agent import AiRecipeAgent
-from domains.ai_recipe.cache import AiRecipeCache
-from domains.ai_recipe.quota import AiQuotaStore
-from domains.ai_recipe.service import AiRecipeService
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.scope import IngredientScopeLoader
 from domains.ingredient.service import IngredientService
@@ -142,20 +138,6 @@ def get_ingredient_scope_loader(
         user=user,
         ingredient_repo=ingredient_repo,
         group_repo=GroupRepository(session),
-    )
-
-
-def get_ai_recipe_service(
-    user: User = Depends(get_current_user),
-    scope_loader: IngredientScopeLoader = Depends(get_ingredient_scope_loader),
-) -> AiRecipeService:
-    cache = AiRecipeCache(get_redis(), ttl_seconds=86400)
-    return AiRecipeService(
-        user=user,
-        scope_loader=scope_loader,
-        agent=AiRecipeAgent(),
-        cache=cache,
-        quota=AiQuotaStore(get_redis()),
     )
 
 

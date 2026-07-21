@@ -75,15 +75,6 @@ class ExternalServiceException(BaseCustomException):
         )
 
 
-class TooManyRequestsException(BaseCustomException):
-    def __init__(
-        self,
-        code: str | ErrorCode = ErrorCode.AI_QUOTA_EXCEEDED,
-        detail: str = "오늘 AI 레시피 생성 한도(15회)를 초과했습니다.",
-    ):
-        super().__init__(status_code=429, code=code, detail=detail)
-
-
 # ----------------------------------------
 # 2. 토큰 관련
 # ----------------------------------------
