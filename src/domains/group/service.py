@@ -238,7 +238,14 @@ class GroupService:
         membership, _ = await self._require_membership()
         _ensure_expiration_valid(request.purchase_date, request.expiration_date)
 
+        seen: set[str] = set()
         for name in request.ingredients:
+            if name in seen:
+                raise ConflictException(
+                    code=ErrorCode.INGREDIENT_NAME_CONFLICT,
+                    detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
+                )
+            seen.add(name)
             if (
                 await self.ingredient_repo.find_name_in_group(membership.group_id, name)
                 is not None
@@ -276,6 +283,17 @@ class GroupService:
         )
         if ingredient is None:
             raise IngredientNotFoundException()
+
+        if "ingredient_name" in updates:
+            new_name = updates["ingredient_name"]
+            existing = await self.ingredient_repo.find_name_in_group(
+                membership.group_id, new_name
+            )
+            if existing is not None and existing.id != ingredient.id:
+                raise ConflictException(
+                    code=ErrorCode.INGREDIENT_NAME_CONFLICT,
+                    detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
+                )
 
         for field, value in updates.items():
             setattr(ingredient, field, value)

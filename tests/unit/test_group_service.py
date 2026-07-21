@@ -349,6 +349,41 @@ async def test_group_add_ingredients_rejects_conflict_without_partial_insert(
 
 
 @pytest.mark.asyncio
+async def test_group_add_ingredients_rejects_duplicate_names_in_request(
+    db_session, test_user
+):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+
+    with pytest.raises(ConflictException) as exc:
+        await service.add_ingredients(
+            AddIngredientRequest(ingredients=["양파", "양파"])
+        )
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    assert await service.list_ingredients() == []
+
+
+@pytest.mark.asyncio
+async def test_group_update_ingredient_rejects_name_conflict(db_session, test_user):
+    service = _service(test_user, db_session)
+    await service.create(CreateGroupRequest(name="우리집"))
+    first = await service.add_ingredients(AddIngredientRequest(ingredients=["양파"]))
+    second = await service.add_ingredients(AddIngredientRequest(ingredients=["당근"]))
+
+    with pytest.raises(ConflictException) as exc:
+        await service.update_ingredient(
+            second[0].id, UpdateIngredientRequest(ingredient_name="양파")
+        )
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    listed = await service.list_ingredients()
+    by_id = {item.id: item.ingredient_name for item in listed}
+    assert by_id[first[0].id] == "양파"
+    assert by_id[second[0].id] == "당근"
+
+
+@pytest.mark.asyncio
 async def test_group_member_can_manage_group_shopping_items(db_session, test_user):
     service = _service(test_user, db_session)
     await service.create(CreateGroupRequest(name="우리집"))
