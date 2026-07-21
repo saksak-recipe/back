@@ -21,8 +21,13 @@ from domains.auth.schemas import (
     KakaoAuthResponse,
     KakaoCompleteRequest,
     KakaoNeedsProfileResponse,
+    PasswordResetConfirmRequest,
 )
-from domains.auth.verification_store import PURPOSE_SIGNUP, VerificationCodeStore
+from domains.auth.verification_store import (
+    PURPOSE_PASSWORD_RESET,
+    PURPOSE_SIGNUP,
+    VerificationCodeStore,
+)
 from domains.user.model import User
 from domains.user.repository import UserRepository
 from domains.user.schemas import LogInRequest, LogInResponse, UserInfoResponse
@@ -105,6 +110,34 @@ class AuthService:
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
         )
+        return {"ok": True}
+
+    async def request_password_reset(self, email: str) -> dict:
+        response = {"ok": True, "message": "password_reset_email_sent"}
+        user = await self.user_repo.get_user_by_email(email)
+        if not user or user.password is None:
+            return response
+        code = await self.verification_store.issue(PURPOSE_PASSWORD_RESET, email)
+        await self.email_service.send_verification_code(
+            email, code, PURPOSE_PASSWORD_RESET
+        )
+        return response
+
+    async def confirm_password_reset(
+        self, request: PasswordResetConfirmRequest
+    ) -> dict:
+        email = str(request.email)
+        user = await self.user_repo.get_user_by_email(email)
+        if not user or user.password is None:
+            raise BadRequestException(
+                code=ErrorCode.INVALID_VERIFICATION_CODE,
+                detail="인증 코드가 올바르지 않거나 만료되었습니다.",
+            )
+        await self.verification_store.verify(
+            PURPOSE_PASSWORD_RESET, email, request.code
+        )
+        user.password = security.hash_password(request.password)
+        await self.user_repo.save(user)
         return {"ok": True}
 
     async def login(self, request: LogInRequest) -> LogInResponse:

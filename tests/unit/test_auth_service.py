@@ -11,9 +11,13 @@ from core.exception.exceptions import (
     InvalidTokenException,
     UnAuthorizedException,
 )
-from domains.auth.schemas import EmailVerifyRequest, KakaoCompleteRequest
+from domains.auth.schemas import (
+    EmailVerifyRequest,
+    KakaoCompleteRequest,
+    PasswordResetConfirmRequest,
+)
 from domains.auth.service import AuthService
-from domains.auth.verification_store import PURPOSE_SIGNUP
+from domains.auth.verification_store import PURPOSE_PASSWORD_RESET, PURPOSE_SIGNUP
 from domains.user.model import User
 from domains.user.schemas import LogInRequest
 
@@ -528,3 +532,143 @@ async def test_get_user_by_token_rejects_soft_deleted(
         await auth_service.get_user_by_token(token)
 
     user_repo.save.assert_not_awaited()
+
+
+async def test_request_password_reset_always_ok_even_if_missing(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    email_service: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+
+    result = await auth_service.request_password_reset("no@example.com")
+
+    assert result == {"ok": True, "message": "password_reset_email_sent"}
+    verification_store.issue.assert_not_awaited()
+    email_service.send_verification_code.assert_not_awaited()
+
+
+async def test_request_password_reset_skips_kakao_only_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    email_service: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = User(
+        id=uuid6.uuid7(),
+        email="kakao@example.com",
+        password=None,
+        kakao_id="123",
+        nickname="kakao",
+        is_email_verified=True,
+    )
+
+    result = await auth_service.request_password_reset("kakao@example.com")
+
+    assert result == {"ok": True, "message": "password_reset_email_sent"}
+    verification_store.issue.assert_not_awaited()
+    email_service.send_verification_code.assert_not_awaited()
+
+
+async def test_request_password_reset_sends_code_for_password_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    email_service: AsyncMock,
+    verification_store: AsyncMock,
+    existing_user: User,
+):
+    user_repo.get_user_by_email.return_value = existing_user
+    verification_store.issue.return_value = "654321"
+
+    result = await auth_service.request_password_reset("test@example.com")
+
+    assert result == {"ok": True, "message": "password_reset_email_sent"}
+    verification_store.issue.assert_awaited_once_with(
+        PURPOSE_PASSWORD_RESET, "test@example.com"
+    )
+    email_service.send_verification_code.assert_awaited_once_with(
+        "test@example.com", "654321", PURPOSE_PASSWORD_RESET
+    )
+
+
+async def test_confirm_password_reset_updates_password(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user = User(
+        id=uuid6.uuid7(),
+        email="reset@example.com",
+        password=security.hash_password("oldpass12"),
+        nickname="resetuser",
+        is_email_verified=True,
+    )
+    user_repo.get_user_by_email.return_value = user
+    user_repo.save.side_effect = lambda saved_user: saved_user
+    verification_store.verify.return_value = None
+
+    result = await auth_service.confirm_password_reset(
+        PasswordResetConfirmRequest(
+            email="reset@example.com",
+            code="123456",
+            password="newpass12",
+            checked_password="newpass12",
+        )
+    )
+
+    assert result == {"ok": True}
+    verification_store.verify.assert_awaited_once_with(
+        PURPOSE_PASSWORD_RESET, "reset@example.com", "123456"
+    )
+    user_repo.save.assert_awaited_once_with(user)
+    assert security.verify_password("newpass12", user.password)
+
+
+async def test_confirm_password_reset_hides_missing_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+
+    with pytest.raises(BadRequestException) as exc_info:
+        await auth_service.confirm_password_reset(
+            PasswordResetConfirmRequest(
+                email="missing@example.com",
+                code="123456",
+                password="newpass12",
+                checked_password="newpass12",
+            )
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_VERIFICATION_CODE
+    verification_store.verify.assert_not_awaited()
+
+
+async def test_confirm_password_reset_hides_kakao_only_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = User(
+        id=uuid6.uuid7(),
+        email="kakao@example.com",
+        password=None,
+        kakao_id="123",
+        nickname="kakao",
+        is_email_verified=True,
+    )
+
+    with pytest.raises(BadRequestException) as exc_info:
+        await auth_service.confirm_password_reset(
+            PasswordResetConfirmRequest(
+                email="kakao@example.com",
+                code="123456",
+                password="newpass12",
+                checked_password="newpass12",
+            )
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_VERIFICATION_CODE
+    verification_store.verify.assert_not_awaited()

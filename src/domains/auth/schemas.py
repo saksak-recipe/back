@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from domains.user.schemas import UserInfoResponse
 
@@ -12,6 +12,27 @@ class EmailVerifyRequest(BaseModel):
 
 class EmailResendRequest(BaseModel):
     email: EmailStr
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+    password: str = Field(
+        ..., min_length=8, max_length=20, description="비밀번호 (8~20자)"
+    )
+    checked_password: str = Field(
+        ..., min_length=8, max_length=20, description="비밀번호 확인"
+    )
+
+    @model_validator(mode="after")
+    def verify_password_match(self):
+        if self.password != self.checked_password:
+            raise ValueError("비밀번호 확인이 일치하지 않습니다.")
+        return self
 
 
 class KakaoLoginRequest(BaseModel):
