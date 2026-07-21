@@ -62,3 +62,17 @@ async def mark_all_read(
     service: NotificationService = Depends(get_notification_service),
 ) -> None:
     await service.mark_all_read()
+
+
+@router.delete(
+    "/{notification_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=create_error_response(
+        UnAuthorizedException, NotificationNotFoundException
+    ),
+)
+async def delete_notification(
+    notification_id: UUID,
+    service: NotificationService = Depends(get_notification_service),
+) -> None:
+    await service.delete(notification_id)

@@ -101,6 +101,40 @@ async def test_invite_creates_notification_for_invitee(
     assert all(n["type"] != "group_invite" for n in other.json())
 
 
+async def test_delete_notification_removes_from_list(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session,
+    test_user: User,
+):
+    today = date.today()
+    db_session.add(
+        Ingredient(
+            user_id=test_user.id,
+            ingredient_name="두부",
+            purchase_date=today,
+            expiration_date=today + timedelta(days=1),
+        )
+    )
+    await db_session.flush()
+
+    listed = await client.get("/api/v1/notifications", headers=auth_headers)
+    assert listed.status_code == 200
+    notif_id = next(
+        item["id"] for item in listed.json() if item["type"] == "expiry_soon"
+    )
+
+    deleted = await client.delete(
+        f"/api/v1/notifications/{notif_id}", headers=auth_headers
+    )
+    assert deleted.status_code == 204
+
+    listed_again = await client.get(
+        "/api/v1/notifications", headers=auth_headers
+    )
+    assert all(item["id"] != notif_id for item in listed_again.json())
+
+
 async def test_read_other_users_notification_404(
     client: AsyncClient,
     auth_headers: dict[str, str],

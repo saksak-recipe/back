@@ -134,3 +134,11 @@ class NotificationService:
 
     async def mark_all_read(self) -> None:
         await self.notification_repo.mark_all_read(self.user.id)
+
+    async def delete(self, notification_id: UUID) -> None:
+        row = await self.notification_repo.get_by_id_for_user(
+            notification_id, self.user.id
+        )
+        if row is None:
+            raise NotificationNotFoundException()
+        await self.notification_repo.delete(row)

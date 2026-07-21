@@ -120,3 +120,12 @@ class NotificationRepository:
             raise DatabaseException(
                 detail="알림 전체 읽음 처리 중 DB 오류가 발생했습니다."
             ) from e
+
+    async def delete(self, notification: Notification) -> None:
+        try:
+            await self.session.delete(notification)
+            await self.session.flush()
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="알림 삭제 중 DB 오류가 발생했습니다."
+            ) from e
