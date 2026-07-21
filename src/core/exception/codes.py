@@ -15,6 +15,7 @@ class ErrorCode(StrEnum):
     UNAUTHORIZED = "UNAUTHORIZED"  # 인증 필요 (로그인 안함)
     FORBIDDEN = "FORBIDDEN"  # 작업에 대한 권한 없음
     EXTERNAL_SERVICE_ERROR = "EXTERNAL_SERVICE_ERROR"
+    AI_QUOTA_EXCEEDED = "AI_QUOTA_EXCEEDED"
 
     # ----------------------------------------
     # 2. 토큰 관련
