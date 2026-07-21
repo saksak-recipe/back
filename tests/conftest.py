@@ -25,6 +25,7 @@ from core import security  # noqa: E402
 from core.database import Base, get_db  # noqa: E402
 from domains.group.model import Group, GroupInvite, GroupMember  # noqa: F401, E402
 from domains.ingredient.model import Ingredient  # noqa: F401, E402
+from domains.notification.model import Notification  # noqa: F401, E402
 from domains.saved_recipe.model import SavedRecipe  # noqa: F401, E402
 from domains.shopping.model import ShoppingItem  # noqa: F401, E402
 from domains.user.model import User  # noqa: F401, E402

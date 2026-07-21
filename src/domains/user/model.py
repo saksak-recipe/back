@@ -43,6 +43,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    notifications: Mapped[list["Notification"]] = relationship(
+        "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         # 닉네임 대소문자 중복 닉네임 방지
