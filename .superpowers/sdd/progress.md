@@ -1,7 +1,7 @@
 # SDD Progress Ledger
 
-Branch: feat/account-productization
-Plan: docs/superpowers/plans/2026-07-21-account-productization.md
-Repo: back (.worktrees/feat-account-productization)
+Branch: feat/group-ai-recommendations
+Plan: docs/superpowers/plans/2026-07-21-group-ai-recommendations.md
+Repo: back (.worktrees/feat-group-ai-recommendations)
 Started: 2026-07-21
 
