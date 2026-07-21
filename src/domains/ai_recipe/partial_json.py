@@ -17,32 +17,35 @@ class PartialDetailParser:
     def feed(self, chunk: str) -> list[tuple[str, Any]]:
         if chunk:
             self._buf += chunk
-        return self._emit_ready()
+        return self._emit_ready(require_next_key=True)
 
     def finish(self) -> list[tuple[str, Any]]:
-        return self._emit_ready()
+        return self._emit_ready(require_next_key=False)
 
-    def _emit_ready(self) -> list[tuple[str, Any]]:
+    def _emit_ready(self, *, require_next_key: bool) -> list[tuple[str, Any]]:
         events: list[tuple[str, Any]] = []
         for key in _SECTION_KEYS:
             if key in self._emitted:
                 continue
-            value = self._try_extract_array(key)
+            value = self._try_extract_array(key, require_next_key=require_next_key)
             if value is not None:
                 self._emitted.add(key)
                 events.append((key, value))
         return events
 
-    def _try_extract_array(self, key: str) -> list[Any] | None:
+    def _try_extract_array(
+        self, key: str, *, require_next_key: bool
+    ) -> list[Any] | None:
         # Find `"key":` then parse balanced [...] from that position.
         match = re.search(rf'"{key}"\s*:', self._buf)
         if not match:
             return None
-        key_index = _SECTION_KEYS.index(key)
-        if key_index + 1 < len(_SECTION_KEYS):
-            next_key = _SECTION_KEYS[key_index + 1]
-            if not re.search(rf'"{next_key}"\s*:', self._buf):
-                return None
+        if require_next_key:
+            key_index = _SECTION_KEYS.index(key)
+            if key_index + 1 < len(_SECTION_KEYS):
+                next_key = _SECTION_KEYS[key_index + 1]
+                if not re.search(rf'"{next_key}"\s*:', self._buf):
+                    return None
         start = self._buf.find("[", match.end())
         if start < 0:
             return None

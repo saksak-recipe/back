@@ -29,3 +29,10 @@ def test_section_emitted_only_once():
 def test_ignores_incomplete_json():
     parser = PartialDetailParser()
     assert parser.feed('{"ingredients":[{"name":"계') == []
+
+
+def test_finish_emits_closed_array_without_next_key():
+    parser = PartialDetailParser()
+    assert parser.feed('{"ingredients":[{"name":"계란","amount":"2개"}]}') == []
+    events = parser.finish()
+    assert events == [("ingredients", [{"name": "계란", "amount": "2개"}])]
