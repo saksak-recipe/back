@@ -65,6 +65,8 @@ pipeline {
 
         stage('6. Migrate (alembic)') {
             steps {
+                echo 'Sync git docker-compose.yml into DEPLOY_PATH'
+                sh "cp docker-compose.yml ${DEPLOY_PATH}/docker-compose.yml"
                 dir("${DEPLOY_PATH}") {
                     echo 'Pull app image and run alembic upgrade head'
                     sh 'docker compose pull app'

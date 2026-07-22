@@ -16,5 +16,4 @@ wheels/
 /logs/
 .worktrees/
 .coverage
-/docker-compose.yml
-docker-compose.yml
+docker-compose.dev.yml
