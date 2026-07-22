@@ -30,6 +30,7 @@ from domains.group.repository import GroupRepository
 from domains.group.service import GroupService
 from domains.notification.repository import NotificationRepository
 from domains.notification.service import NotificationService
+from domains.ocr.service import OcrService
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.service import ShoppingService
 
@@ -231,4 +232,15 @@ def get_notification_service(
         notification_repo=NotificationRepository(session),
         ingredient_repo=IngredientRepository(session),
         group_repo=GroupRepository(session),
+    )
+
+
+def get_ocr_service(
+    _: User = Depends(get_current_user),
+) -> OcrService:
+    return OcrService(
+        api_url=settings.NAVER_OCR_API_URL,
+        secret_key=settings.NAVER_OCR_SECRET_KEY.get_secret_value(),
+        openai_api_key=settings.OPENAI_API_KEY.get_secret_value(),
+        llm_model=settings.OCR_LLM_MODEL,
     )
