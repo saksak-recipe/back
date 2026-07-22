@@ -5,6 +5,7 @@ from domains.ingredient.model import Ingredient
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.schemas import AddIngredientResponse
 from domains.ingredient.service import compute_status
+from domains.ingredient_shelf_life.service import IngredientShelfLifeService
 from domains.shopping.model import ShoppingItem
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.schemas import (
@@ -21,10 +22,12 @@ class ShoppingService:
         user: User,
         shopping_repo: ShoppingRepository,
         ingredient_repo: IngredientRepository,
+        shelf_life_service: IngredientShelfLifeService,
     ):
         self.user = user
         self.shopping_repo = shopping_repo
         self.ingredient_repo = ingredient_repo
+        self.shelf_life_service = shelf_life_service
 
     async def add_items(
         self, request: AddShoppingItemsRequest
@@ -81,11 +84,18 @@ class ShoppingService:
         if item is None:
             raise ShoppingItemNotFoundException()
 
+        purchase_date = date.today()
+        expirations = await self.shelf_life_service.resolve_expirations_on_add(
+            names=[item.name],
+            purchase_date=purchase_date,
+            expiration_date=None,
+            user_id=self.user.id,
+        )
         ingredient = Ingredient(
             user_id=self.user.id,
             ingredient_name=item.name,
-            purchase_date=date.today(),
-            expiration_date=None,
+            purchase_date=purchase_date,
+            expiration_date=expirations[0],
         )
         saved = await self.ingredient_repo.add_ingredient([ingredient])
         deleted = await self.shopping_repo.delete_item(item_id, self.user.id)

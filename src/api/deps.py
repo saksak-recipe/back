@@ -12,6 +12,8 @@ from domains.auth.verification_store import VerificationCodeStore
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.scope import IngredientScopeLoader
 from domains.ingredient.service import IngredientService
+from domains.ingredient_shelf_life.repository import IngredientShelfLifeRepository
+from domains.ingredient_shelf_life.service import IngredientShelfLifeService
 
 from domains.user.repository import UserRepository
 from domains.user.service import UserService
@@ -101,13 +103,27 @@ def get_ingredient_repo(
     return IngredientRepository(session)
 
 
+def get_shelf_life_repo(
+    session: AsyncSession = Depends(get_db),
+) -> IngredientShelfLifeRepository:
+    return IngredientShelfLifeRepository(session)
+
+
+def get_shelf_life_service(
+    shelf_life_repo: IngredientShelfLifeRepository = Depends(get_shelf_life_repo),
+) -> IngredientShelfLifeService:
+    return IngredientShelfLifeService(repo=shelf_life_repo)
+
+
 def get_ingredient_service(
     user: User = Depends(get_current_user),
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
+    shelf_life_service: IngredientShelfLifeService = Depends(get_shelf_life_service),
 ) -> IngredientService:
     return IngredientService(
         user=user,
         ingredient_repo=ingredient_repo,
+        shelf_life_service=shelf_life_service,
     )
 
 
@@ -121,11 +137,13 @@ def get_shopping_service(
     user: User = Depends(get_current_user),
     shopping_repo: ShoppingRepository = Depends(get_shopping_repo),
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
+    shelf_life_service: IngredientShelfLifeService = Depends(get_shelf_life_service),
 ) -> ShoppingService:
     return ShoppingService(
         user=user,
         shopping_repo=shopping_repo,
         ingredient_repo=ingredient_repo,
+        shelf_life_service=shelf_life_service,
     )
 
 
@@ -185,6 +203,7 @@ def get_saved_recipe_service(
 def get_group_service(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
+    shelf_life_service: IngredientShelfLifeService = Depends(get_shelf_life_service),
 ) -> GroupService:
     return GroupService(
         user=user,
@@ -193,6 +212,7 @@ def get_group_service(
         ingredient_repo=IngredientRepository(session),
         shopping_repo=ShoppingRepository(session),
         notification_repo=NotificationRepository(session),
+        shelf_life_service=shelf_life_service,
     )
 
 

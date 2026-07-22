@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import domains.user.model  # noqa: F401 — register models for autogenerate
 import domains.ingredient.model  # noqa: F401 — register models for autogenerate
+import domains.ingredient_shelf_life.model  # noqa: F401 — register models for autogenerate
 from core.config import settings
 from core.database import Base
 

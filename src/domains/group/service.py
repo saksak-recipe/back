@@ -29,6 +29,7 @@ from domains.group.schemas import (
 )
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.model import Ingredient
+from domains.ingredient_shelf_life.service import IngredientShelfLifeService
 from domains.notification.repository import NotificationRepository
 from domains.notification.service import NotificationService
 from domains.ingredient.schemas import (
@@ -63,6 +64,7 @@ class GroupService:
         ingredient_repo: IngredientRepository,
         shopping_repo: ShoppingRepository,
         notification_repo: NotificationRepository,
+        shelf_life_service: IngredientShelfLifeService,
     ) -> None:
         self.user = user
         self.group_repo = group_repo
@@ -70,6 +72,7 @@ class GroupService:
         self.ingredient_repo = ingredient_repo
         self.shopping_repo = shopping_repo
         self.notification_repo = notification_repo
+        self.shelf_life_service = shelf_life_service
 
     async def create(self, request: CreateGroupRequest) -> GroupResponse:
         if await self.group_repo.get_membership(self.user.id) is not None:
@@ -275,15 +278,21 @@ class GroupService:
                     detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
                 )
 
+        expirations = await self.shelf_life_service.resolve_expirations_on_add(
+            names=request.ingredients,
+            purchase_date=request.purchase_date,
+            expiration_date=request.expiration_date,
+            user_id=self.user.id,
+        )
         ingredients = [
             Ingredient(
                 user_id=self.user.id,
                 group_id=membership.group_id,
                 ingredient_name=name,
                 purchase_date=request.purchase_date,
-                expiration_date=request.expiration_date,
+                expiration_date=expiration,
             )
-            for name in request.ingredients
+            for name, expiration in zip(request.ingredients, expirations, strict=True)
         ]
         saved = await self.ingredient_repo.add_ingredient(ingredients)
 
@@ -403,14 +412,21 @@ class GroupService:
                 detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
             )
 
+        purchase_date = date.today()
+        expirations = await self.shelf_life_service.resolve_expirations_on_add(
+            names=[item.name],
+            purchase_date=purchase_date,
+            expiration_date=None,
+            user_id=self.user.id,
+        )
         saved = await self.ingredient_repo.add_ingredient(
             [
                 Ingredient(
                     user_id=self.user.id,
                     group_id=membership.group_id,
                     ingredient_name=item.name,
-                    purchase_date=date.today(),
-                    expiration_date=None,
+                    purchase_date=purchase_date,
+                    expiration_date=expirations[0],
                 )
             ]
         )

@@ -35,15 +35,28 @@ def user() -> User:
 
 
 @pytest.fixture
+def shelf_life_service() -> AsyncMock:
+    service = AsyncMock()
+
+    async def _passthrough(*, names, purchase_date, expiration_date, user_id):
+        return [expiration_date for _ in names]
+
+    service.resolve_expirations_on_add.side_effect = _passthrough
+    return service
+
+
+@pytest.fixture
 def shopping_service(
     user: User,
     shopping_repo: AsyncMock,
     ingredient_repo: AsyncMock,
+    shelf_life_service: AsyncMock,
 ) -> ShoppingService:
     return ShoppingService(
         user=user,
         shopping_repo=shopping_repo,
         ingredient_repo=ingredient_repo,
+        shelf_life_service=shelf_life_service,
     )
 
 
@@ -263,6 +276,9 @@ async def test_personal_shopping_service_excludes_group_items(
         user=test_user,
         shopping_repo=repository,
         ingredient_repo=IngredientRepository(db_session),
+        shelf_life_service=AsyncMock(
+            resolve_expirations_on_add=AsyncMock(return_value=[None])
+        ),
     )
     personal = (
         await repository.add_items(

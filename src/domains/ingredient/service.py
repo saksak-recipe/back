@@ -10,6 +10,7 @@ from domains.ingredient.schemas import (
     IngredientStatus,
     UpdateIngredientRequest,
 )
+from domains.ingredient_shelf_life.service import IngredientShelfLifeService
 from domains.user.model import User
 
 SOON_WITHIN_DAYS = 3
@@ -82,22 +83,30 @@ class IngredientService:
         self,
         user: User,
         ingredient_repo: IngredientRepository,
+        shelf_life_service: IngredientShelfLifeService,
     ):
         self.user = user
         self.ingredient_repo = ingredient_repo
+        self.shelf_life_service = shelf_life_service
 
     async def add_ingredients(
         self, request: AddIngredientRequest
     ) -> list[AddIngredientResponse]:
         _ensure_expiration_valid(request.purchase_date, request.expiration_date)
+        expirations = await self.shelf_life_service.resolve_expirations_on_add(
+            names=request.ingredients,
+            purchase_date=request.purchase_date,
+            expiration_date=request.expiration_date,
+            user_id=self.user.id,
+        )
         ingredients = [
             Ingredient(
                 user_id=self.user.id,
                 ingredient_name=name,
                 purchase_date=request.purchase_date,
-                expiration_date=request.expiration_date,
+                expiration_date=expiration,
             )
-            for name in request.ingredients
+            for name, expiration in zip(request.ingredients, expirations, strict=True)
         ]
         saved = await self.ingredient_repo.add_ingredient(ingredients)
         today = date.today()

@@ -31,12 +31,26 @@ def user() -> User:
 
 
 @pytest.fixture
+def shelf_life_service() -> AsyncMock:
+    service = AsyncMock()
+
+    async def _passthrough(*, names, purchase_date, expiration_date, user_id):
+        return [expiration_date for _ in names]
+
+    service.resolve_expirations_on_add.side_effect = _passthrough
+    return service
+
+
+@pytest.fixture
 def ingredient_service(
-    user: User, ingredient_repo: AsyncMock
+    user: User,
+    ingredient_repo: AsyncMock,
+    shelf_life_service: AsyncMock,
 ) -> IngredientService:
     return IngredientService(
         user=user,
         ingredient_repo=ingredient_repo,
+        shelf_life_service=shelf_life_service,
     )
 
 
@@ -159,7 +173,11 @@ async def test_get_ingredients_excludes_group_scoped_rows(db_session, test_user:
     await db_session.flush()
 
     result = await IngredientService(
-        user=test_user, ingredient_repo=IngredientRepository(db_session)
+        user=test_user,
+        ingredient_repo=IngredientRepository(db_session),
+        shelf_life_service=AsyncMock(
+            resolve_expirations_on_add=AsyncMock(return_value=[None])
+        ),
     ).get_ingredients()
 
     assert [item.ingredient_name for item in result] == ["개인 양파"]

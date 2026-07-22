@@ -24,6 +24,8 @@ from domains.group.service import GroupService
 from domains.ingredient.model import Ingredient
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
+from domains.ingredient_shelf_life.repository import IngredientShelfLifeRepository
+from domains.ingredient_shelf_life.service import IngredientShelfLifeService
 from domains.notification.repository import NotificationRepository
 from domains.shopping.model import ShoppingItem
 from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
@@ -40,6 +42,9 @@ def _service(user: User, db_session) -> GroupService:
         ingredient_repo=IngredientRepository(db_session),
         shopping_repo=ShoppingRepository(db_session),
         notification_repo=NotificationRepository(db_session),
+        shelf_life_service=IngredientShelfLifeService(
+            repo=IngredientShelfLifeRepository(db_session)
+        ),
     )
 
 
