@@ -30,3 +30,15 @@ Task 5: complete (docs cleanup + verification; 254 pytest passed)
 Task 5: complete (254 passed); awaiting final whole-branch review
 Final: Ready to merge — awaiting user integration choice
 Final: merged to main (fast-forward 8fd1191); feature branch deleted
+
+## feat/naver-ocr-receipt-ingredients
+Plan: docs/superpowers/plans/2026-07-23-naver-ocr-receipt-ingredients.md
+Base: working in place (worktree sandbox blocked)
+
+Task 1: complete (commits 49c6232..5bb3f50, review clean; minors: default code unasserted, param order vs BadRequest)
+Task 2: complete (commits 5bb3f50..761ffd5, review clean; minors: AsyncOpenAI not closed, edge-case tests)
+Task 3: complete (commits 761ffd5..916bcea, review clean; minors: untested config/parse paths)
+Task 4: complete (commits 916bcea..30dade9, review clean; minors: empty/ext fallback untested)
+Task 5: complete (commits 30dade9..9cbbb2a, review clean)
+Final: controller review Ready to merge (subagent API limit); minors only — AsyncOpenAI unclosed, thin edge tests, Starlette 422 warning
+Final: merged to main (fast-forward 9cbbb2a); feature branch deleted

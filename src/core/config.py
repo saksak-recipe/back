@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     NAVER_OCR_API_URL: str = ""
     NAVER_OCR_SECRET_KEY: SecretStr = SecretStr("")
-    OCR_LLM_MODEL: str = "gpt-4o-mini"
+    OCR_LLM_MODEL: str = "gpt-5-nano"
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
