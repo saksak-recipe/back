@@ -1,0 +1,10 @@
+.env
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.coverage
+logs/
+.worktrees/
+.superpowers/
+.idea/
