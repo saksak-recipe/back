@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: SecretStr
     OPENAI_API_KEY: SecretStr
 
+    NAVER_OCR_API_URL: str = ""
+    NAVER_OCR_SECRET_KEY: SecretStr = SecretStr("")
+    OCR_LLM_MODEL: str = "gpt-4o-mini"
+
     REDIS_URL: str = "redis://localhost:6379/0"
 
     WITHDRAWAL_GRACE_DAYS: int = 7

@@ -69,10 +69,9 @@ class ExternalServiceException(BaseCustomException):
     def __init__(
         self,
         detail: str = "외부 서비스 연동 중 오류가 발생하였습니다.",
+        code: str | ErrorCode = ErrorCode.EXTERNAL_SERVICE_ERROR,
     ):
-        super().__init__(
-            status_code=502, code=ErrorCode.EXTERNAL_SERVICE_ERROR, detail=detail
-        )
+        super().__init__(status_code=502, code=code, detail=detail)
 
 
 # ----------------------------------------
