@@ -17,4 +17,3 @@ wheels/
 .worktrees/
 .coverage
 docker-compose.dev.yml
-monitoring/.env

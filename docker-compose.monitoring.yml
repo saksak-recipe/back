@@ -20,7 +20,7 @@ services:
     container_name: saksak-alertmanager
     restart: unless-stopped
     env_file:
-      - ./monitoring/.env
+      - ./.env
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -36,7 +36,7 @@ services:
     container_name: saksak-grafana
     restart: unless-stopped
     env_file:
-      - ./monitoring/.env
+      - ./.env
     environment:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
@@ -88,7 +88,7 @@ services:
     container_name: saksak-postgres-exporter
     restart: unless-stopped
     env_file:
-      - ./monitoring/.env
+      - ./.env
     networks:
       - saksak-network
 

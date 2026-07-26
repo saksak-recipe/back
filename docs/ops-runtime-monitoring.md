@@ -52,11 +52,8 @@ docker network inspect saksak-network --format '{{.Name}}'
 
 ### 3. 모니터링 환경 변수
 
-```bash
-cp monitoring/.env.example monitoring/.env
-```
-
-`monitoring/.env`를 편집해 시크릿을 채웁니다 (`monitoring/.env`는 git에 커밋하지 않음).
+앱과 동일하게 **프로젝트 루트 `.env`** 에 아래 키를 추가합니다 (`docker-compose.monitoring.yml`이 `./.env`를 읽음).  
+키 목록 참고: `monitoring/.env.example` (복사본을 만들지 말고, 내용을 루트 `.env`에 붙이면 됨).
 
 | 변수 | 설명 |
 |------|------|
@@ -65,7 +62,7 @@ cp monitoring/.env.example monitoring/.env
 | `DISCORD_WEBHOOK_URL` | Alertmanager → Discord 웹훅 (Jenkins와 동일 URL 가능) |
 | `DATA_SOURCE_NAME` | postgres-exporter DSN (`saksak-db:5432`, 앱 DB 사용자) |
 
-DSN 예시:
+DSN 예시 (`DB_USER` / `DB_PASSWORD`와 동일 계정):
 
 ```
 DATA_SOURCE_NAME=postgresql://USER:PASSWORD@saksak-db:5432/saksak?sslmode=disable
@@ -96,7 +93,7 @@ Grafana만 NPM으로 공개합니다.
 설정 체크:
 
 - **HTTPS** 사용 (Let's Encrypt 등)
-- Grafana admin 비밀번호를 `monitoring/.env`에서 강력하게 설정
+- Grafana admin 비밀번호를 루트 `.env`의 `GF_SECURITY_ADMIN_PASSWORD`로 강력하게 설정
 - **프록시하지 않을 것:** Prometheus (`9090`), Alertmanager (`9093`), 앱 `/metrics` (`saksak-back:8000/metrics`)
 
 로컬 디버그가 필요할 때만 compose 주석의 `127.0.0.1:3000:3000` 바인딩을 임시 사용하고, 사용 후 제거합니다.
@@ -106,7 +103,7 @@ Grafana만 NPM으로 공개합니다.
 ### Grafana 대시보드
 
 1. NPM 경유 HTTPS URL로 Grafana 접속
-2. `monitoring/.env`의 admin 계정으로 로그인
+2. 루트 `.env`의 Grafana admin 계정으로 로그인
 3. **Saksak Overview** 대시보드에서 패널에 데이터가 채워지는지 확인 (App up, RPS, CPU/메모리/디스크 등)
 
 스택 기동 직후 scrape interval(15s)만큼 잠시 **No data**일 수 있습니다.
@@ -150,7 +147,7 @@ docker start saksak-back
 | Prometheus UI (`:9090`) 비공개 | compose에 host port 없음, NPM 미등록 |
 | Alertmanager UI (`:9093`) 비공개 | compose에 host port 없음, NPM 미등록 |
 | Grafana HTTPS + 강한 admin 비밀번호 | NPM SSL + `GF_SECURITY_ADMIN_PASSWORD` |
-| `monitoring/.env` / Discord 웹훅 git 미커밋 | `.gitignore`에 `monitoring/.env` 포함 |
+| 루트 `.env` / Discord 웹훅 git 미커밋 | `.gitignore`에 `.env` 포함 |
 | Jenkins 배포 파이프라인 무변경 | Jenkinsfile 수정 없음, stage 8 헬스체크 유지 |
 
 외부에서 Prometheus/Grafana/metrics 포트에 접속 시도해 차단되는지 한 번 더 확인합니다.
