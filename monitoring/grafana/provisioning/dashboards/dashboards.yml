@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: saksak
+    orgId: 1
+    folder: Saksak
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
