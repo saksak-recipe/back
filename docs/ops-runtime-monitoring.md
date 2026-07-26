@@ -65,7 +65,13 @@ Postgres exporter는 별도 DSN 없이, 이미 `.env`에 있는 `DB_USER` / `DB_
 
 ## 기동 (Start)
 
-`docker-compose.yml`과 `docker-compose.monitoring.yml`이 **같은 디렉터리**에 있는 경로(미니 PC 배포 경로)에서 실행합니다.
+`docker-compose.yml`과 `docker-compose.monitoring.yml`이 **같은 디렉터리**에 있는 경로(미니 PC 배포 경로, 예: `DEPLOY_PATH`)에서 실행합니다.
+
+Jenkins 배포(stage 6)가 매 배포마다 아래로 동기화합니다 (모니터링 스택은 **자동 재기동하지 않음**).
+
+- `docker-compose.yml`
+- `docker-compose.monitoring.yml`
+- `monitoring/` (prometheus·alertmanager·grafana 설정; `.env` 제외)
 
 ```bash
 docker compose -f docker-compose.monitoring.yml up -d
