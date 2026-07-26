@@ -60,13 +60,8 @@ docker network inspect saksak-network --format '{{.Name}}'
 | `GF_SECURITY_ADMIN_USER` | Grafana admin 계정 |
 | `GF_SECURITY_ADMIN_PASSWORD` | Grafana admin 비밀번호 (강력한 값) |
 | `DISCORD_WEBHOOK_URL` | Alertmanager → Discord 웹훅 (Jenkins와 동일 URL 가능) |
-| `DATA_SOURCE_NAME` | postgres-exporter DSN (`saksak-db:5432`, 앱 DB 사용자) |
 
-DSN 예시 (`DB_USER` / `DB_PASSWORD`와 동일 계정):
-
-```
-DATA_SOURCE_NAME=postgresql://USER:PASSWORD@saksak-db:5432/saksak?sslmode=disable
-```
+Postgres exporter는 별도 DSN 없이, 이미 `.env`에 있는 `DB_USER` / `DB_PASSWORD` / `DB_NAME`(`src/core/config.py`와 동일)으로 compose가 `DATA_SOURCE_NAME`을 조립합니다. 호스트는 Docker DNS `saksak-db:5432`입니다.
 
 ## 기동 (Start)
 

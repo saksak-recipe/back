@@ -89,6 +89,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env
+    environment:
+      # Same credentials as src/core/config.py (DB_*); host is Docker DNS like compose app
+      DATA_SOURCE_NAME: postgresql://${DB_USER}:${DB_PASSWORD}@saksak-db:5432/${DB_NAME}?sslmode=disable
     networks:
       - saksak-network
 
