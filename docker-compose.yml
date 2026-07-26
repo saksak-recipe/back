@@ -55,6 +55,7 @@ services:
 
 networks:
   saksak-network:
+    name: saksak-network
   npm-network:
     external: true
 
