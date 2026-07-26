@@ -42,3 +42,14 @@ Task 4: complete (commits 916bcea..30dade9, review clean; minors: empty/ext fall
 Task 5: complete (commits 30dade9..9cbbb2a, review clean)
 Final: controller review Ready to merge (subagent API limit); minors only — AsyncOpenAI unclosed, thin edge tests, Starlette 422 warning
 Final: merged to main (fast-forward 9cbbb2a); feature branch deleted
+
+## feat/runtime-monitoring
+Plan: docs/superpowers/plans/2026-07-26-runtime-monitoring.md
+Base: working in place on feat/runtime-monitoring (from main @ 713f36f)
+Task 1: complete (commits 713f36f..1caf5fd, review clean; minors: histogram assert, content-type, / route order)
+Task 2: complete (commits 1caf5fd..d71acba, review clean)
+Task 3: complete (commits d71acba..7f6ca77, review clean; minors: empty grafana dirs, runtime untested)
+Task 4: complete (commits 7f6ca77..79b5e2f, review clean; minor: datasource uid addition)
+Task 5: complete (commits 79b5e2f..8020bda, review clean; minors: Alertmanager test curl example)
+Final: Ready to merge after cbaab50 highr latency fix
+Final: merged to main (fast-forward cbaab50); feature branch deleted
