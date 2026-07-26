@@ -1,0 +1,81 @@
+groups:
+  - name: saksak-runtime
+    rules:
+      - alert: AppDown
+        expr: up{job="saksak-app"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "saksak app /metrics target down ≥ 3m"
+
+      - alert: High5xx
+        expr: |
+          (
+            sum(rate(http_requests_total{job="saksak-app",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_requests_total{job="saksak-app"}[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "saksak 5xx rate > 5% (5m)"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="saksak-app"}[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "saksak HTTP p95 latency > 2s (5m)"
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "postgres-exporter target down ≥ 1m"
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "redis-exporter target down ≥ 1m"
+
+      - alert: DiskHigh
+        expr: |
+          (
+            1 - (
+              node_filesystem_avail_bytes{fstype!~"tmpfs|overlay",mountpoint="/"}
+              /
+              node_filesystem_size_bytes{fstype!~"tmpfs|overlay",mountpoint="/"}
+            )
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "host disk usage > 85%"
+
+      - alert: MemoryHigh
+        expr: |
+          (
+            1 - (
+              node_memory_MemAvailable_bytes
+              /
+              node_memory_MemTotal_bytes
+            )
+          ) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "host memory usage > 90%"

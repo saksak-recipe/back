@@ -1,0 +1,113 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: saksak-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - saksak-network
+    # no host ports — internal only
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: saksak-alertmanager
+    restart: unless-stopped
+    env_file:
+      - ./monitoring/.env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        printf '%s' "$$DISCORD_WEBHOOK_URL" > /etc/alertmanager/discord_webhook_url
+        exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - saksak-network
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: saksak-grafana
+    restart: unless-stopped
+    env_file:
+      - ./monitoring/.env
+    environment:
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - saksak-network
+      - npm-network
+    # Prefer NPM proxy over publishing 3000 publicly.
+    # Optional local debug only: "127.0.0.1:3000:3000"
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: saksak-node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    networks:
+      - saksak-network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: saksak-cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - saksak-network
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: saksak-postgres-exporter
+    restart: unless-stopped
+    env_file:
+      - ./monitoring/.env
+    networks:
+      - saksak-network
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: saksak-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://saksak-redis:6379
+    networks:
+      - saksak-network
+
+networks:
+  saksak-network:
+    external: true
+    name: saksak-network
+  npm-network:
+    external: true
+
+volumes:
+  prometheus_data:
+  grafana_data:
