@@ -16,7 +16,8 @@ services:
     # no host ports — internal only
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    # v0.27.0 rejects discord webhook_url_file ("no discord webhook URL provided"); fixed in v0.28.0+
+    image: prom/alertmanager:v0.28.1
     container_name: saksak-alertmanager
     restart: unless-stopped
     env_file:
@@ -24,6 +25,10 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        if [ -z "$$DISCORD_WEBHOOK_URL" ]; then
+          echo "DISCORD_WEBHOOK_URL is empty; set it in .env" >&2
+          exit 1
+        fi
         printf '%s' "$$DISCORD_WEBHOOK_URL" > /etc/alertmanager/discord_webhook_url
         exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml
     volumes:
