@@ -16,6 +16,7 @@ dependencies = [
     "langchain-postgres>=0.0.17",
     "loguru>=0.7.3",
     "openai>=2.46.0",
+    "prometheus-fastapi-instrumentator>=8.0.2",
     "pwdlib[argon2]>=0.3.0",
     "pydantic-settings>=2.14.2",
     "pyjwt>=2.13.0",
