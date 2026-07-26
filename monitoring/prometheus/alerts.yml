@@ -35,20 +35,22 @@ groups:
           summary: "saksak HTTP p95 latency > 2s (5m)"
 
       - alert: PostgresDown
-        expr: up{job="postgres"} == 0
+        # up = exporter scrapeable; pg_up = exporter can reach Postgres
+        expr: up{job="postgres"} == 0 or pg_up == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "postgres-exporter target down ≥ 1m"
+          summary: "Postgres unreachable (exporter or DB) ≥ 1m"
 
       - alert: RedisDown
-        expr: up{job="redis"} == 0
+        # up = exporter scrapeable; redis_up = exporter can reach Redis
+        expr: up{job="redis"} == 0 or redis_up == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "redis-exporter target down ≥ 1m"
+          summary: "Redis unreachable (exporter or Redis) ≥ 1m"
 
       - alert: DiskHigh
         expr: |

@@ -64,7 +64,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"postgres\"}",
+          "expr": "up{job=\"postgres\"} * pg_up",
           "legendFormat": "postgres",
           "datasource": { "type": "prometheus", "uid": "prometheus" }
         }
@@ -103,7 +103,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"redis\"}",
+          "expr": "up{job=\"redis\"} * redis_up",
           "legendFormat": "redis",
           "datasource": { "type": "prometheus", "uid": "prometheus" }
         }
