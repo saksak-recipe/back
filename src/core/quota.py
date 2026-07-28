@@ -105,9 +105,3 @@ class DailyQuotaStore:
         raw = await self._redis.get(key)
         used = int(raw) if raw is not None else 0
         return self._snapshot(used, limit)
-
-    async def peek(self, kind: str, subject: str, limit: int) -> QuotaInfo:
-        key = self._key(kind, subject)
-        raw = await self._redis.get(key)
-        used = int(raw) if raw is not None else 0
-        return self._snapshot(used, limit)
