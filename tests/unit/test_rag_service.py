@@ -5,6 +5,7 @@ import pytest
 import uuid6
 from langchain_core.documents import Document
 
+from core.quota import KIND_RAG, RAG_DAILY_LIMIT, QuotaInfo, kst_next_midnight
 from domains.ingredient.model import Ingredient
 from domains.ingredient.scope import RecipeScope, ScopedIngredients
 from domains.rag.retriever import RecipeRetriever
@@ -33,11 +34,23 @@ def retriever() -> MagicMock:
 
 
 @pytest.fixture
-def rag_service(user, scope_loader, retriever) -> RagService:
+def daily_quota_store() -> AsyncMock:
+    store = AsyncMock()
+    store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=7, used=1, remaining=6, reset_at=kst_next_midnight()
+        )
+    )
+    return store
+
+
+@pytest.fixture
+def rag_service(user, scope_loader, retriever, daily_quota_store) -> RagService:
     return RagService(
         user=user,
         scope_loader=scope_loader,
         retriever=retriever,
+        daily_quota_store=daily_quota_store,
     )
 
 
@@ -61,6 +74,55 @@ def _set_personal_scope(
         scope=RecipeScope.personal,
         cache_owner_id=user.id,
     )
+
+
+async def test_recommend_consumes_rag_quota(
+    rag_service: RagService,
+    scope_loader: AsyncMock,
+    retriever: MagicMock,
+    user: User,
+    daily_quota_store: AsyncMock,
+):
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+            )
+        ],
+    )
+    retriever.search.return_value = []
+    daily_quota_store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=7, used=1, remaining=6, reset_at=kst_next_midnight()
+        )
+    )
+
+    result = await rag_service.recommend_recipes()
+
+    daily_quota_store.consume.assert_awaited_once_with(
+        KIND_RAG, str(user.id), RAG_DAILY_LIMIT
+    )
+    assert result.quota is not None
+    assert result.quota.remaining == 6
+
+
+async def test_recommend_empty_skips_quota(
+    rag_service: RagService,
+    scope_loader: AsyncMock,
+    daily_quota_store: AsyncMock,
+    user: User,
+):
+    _set_personal_scope(scope_loader, user, [])
+
+    result = await rag_service.recommend_recipes()
+
+    daily_quota_store.consume.assert_not_called()
+    assert result.quota is None
 
 
 async def test_recommend_returns_empty_when_no_ingredients(
@@ -302,7 +364,18 @@ async def test_recommend_group_scope_uses_scoped_ingredients(user, retriever):
         scope=RecipeScope.group,
         cache_owner_id=group_id,
     )
-    service = RagService(user=user, scope_loader=scope_loader, retriever=retriever)
+    daily_quota_store = AsyncMock()
+    daily_quota_store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=7, used=1, remaining=6, reset_at=kst_next_midnight()
+        )
+    )
+    service = RagService(
+        user=user,
+        scope_loader=scope_loader,
+        retriever=retriever,
+        daily_quota_store=daily_quota_store,
+    )
     retriever.search.return_value = []
 
     result = await service.recommend_recipes(scope=RecipeScope.group)
@@ -318,7 +391,13 @@ async def test_recommend_defaults_to_personal(user, retriever):
         scope=RecipeScope.personal,
         cache_owner_id=user.id,
     )
-    service = RagService(user=user, scope_loader=scope_loader, retriever=retriever)
+    daily_quota_store = AsyncMock()
+    service = RagService(
+        user=user,
+        scope_loader=scope_loader,
+        retriever=retriever,
+        daily_quota_store=daily_quota_store,
+    )
 
     await service.recommend_recipes()
 

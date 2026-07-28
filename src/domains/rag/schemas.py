@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from core.quota import QuotaInfo
+
 
 class RecipeRecommendation(BaseModel):
     recipe_name: str
@@ -17,3 +19,4 @@ class RecipeRecommendation(BaseModel):
 class RecipeRecommendationResponse(BaseModel):
     ingredients_used: list[str]
     recipes: list[RecipeRecommendation]
+    quota: QuotaInfo | None = None

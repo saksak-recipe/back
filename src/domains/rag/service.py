@@ -1,6 +1,7 @@
 import asyncio
 import random
 
+from core.quota import DailyQuotaStore, KIND_RAG, RAG_DAILY_LIMIT
 from domains.ingredient.scope import IngredientScopeLoader, RecipeScope
 from domains.ingredient_matching.urgency import count_urgent_owned, urgent_names
 from domains.rag.mapper import (
@@ -25,10 +26,12 @@ class RagService:
         user: User,
         scope_loader: IngredientScopeLoader,
         retriever: RecipeRetriever,
+        daily_quota_store: DailyQuotaStore,
     ):
         self.user = user
         self.scope_loader = scope_loader
         self.retriever = retriever
+        self.daily_quota_store = daily_quota_store
 
     async def recommend_recipes(
         self, scope: RecipeScope = RecipeScope.personal
@@ -37,8 +40,13 @@ class RagService:
         ingredients = scoped.ingredients
         names = [item.ingredient_name for item in ingredients]
         if not names:
-            return RecipeRecommendationResponse(ingredients_used=[], recipes=[])
+            return RecipeRecommendationResponse(
+                ingredients_used=[], recipes=[], quota=None
+            )
 
+        quota = await self.daily_quota_store.consume(
+            KIND_RAG, str(self.user.id), RAG_DAILY_LIMIT
+        )
         urgent = urgent_names(ingredients)
         query = build_ingredient_query(names, urgent_names=urgent)
         docs_with_scores = await asyncio.to_thread(
@@ -79,4 +87,5 @@ class RagService:
         return RecipeRecommendationResponse(
             ingredients_used=names,
             recipes=recipes,
+            quota=quota,
         )

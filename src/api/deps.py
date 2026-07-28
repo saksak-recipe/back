@@ -182,11 +182,13 @@ def get_rag_service(
     user: User = Depends(get_current_user),
     scope_loader: IngredientScopeLoader = Depends(get_ingredient_scope_loader),
     retriever: RecipeRetriever = Depends(get_rag_retriever),
+    quota_store: DailyQuotaStore = Depends(get_daily_quota_store),
 ) -> RagService:
     return RagService(
         user=user,
         scope_loader=scope_loader,
         retriever=retriever,
+        daily_quota_store=quota_store,
     )
 
 
