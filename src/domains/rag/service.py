@@ -71,21 +71,43 @@ class RagService:
                 break
 
         if urgent:
-            candidates.sort(
-                key=lambda recipe: (
-                    -count_urgent_owned(recipe.owned_ingredients, urgent),
-                    recipe.score,
-                ),
-            )
-            recipes = candidates[:TOP_K]
+            recipes = self._sample_preferring_urgent(candidates, urgent)
         else:
-            if len(candidates) <= TOP_K:
-                recipes = candidates
-            else:
-                recipes = random.sample(candidates, TOP_K)
+            recipes = self._sample_top_k(candidates)
 
         return RecipeRecommendationResponse(
             ingredients_used=names,
             recipes=recipes,
             quota=quota,
         )
+
+    @staticmethod
+    def _sample_top_k(
+        candidates: list[RecipeRecommendation],
+    ) -> list[RecipeRecommendation]:
+        if len(candidates) <= TOP_K:
+            return candidates
+        return random.sample(candidates, TOP_K)
+
+    @staticmethod
+    def _sample_preferring_urgent(
+        candidates: list[RecipeRecommendation],
+        urgent: list[str],
+    ) -> list[RecipeRecommendation]:
+        """urgent 사용 개수가 많은 티어를 우선하되, 티어 안에서는 sample로 다양성을 확보한다."""
+        by_count: dict[int, list[RecipeRecommendation]] = {}
+        for recipe in candidates:
+            count = count_urgent_owned(recipe.owned_ingredients, urgent)
+            by_count.setdefault(count, []).append(recipe)
+
+        recipes: list[RecipeRecommendation] = []
+        for count in sorted(by_count.keys(), reverse=True):
+            if len(recipes) >= TOP_K:
+                break
+            pool = by_count[count]
+            need = TOP_K - len(recipes)
+            if len(pool) <= need:
+                recipes.extend(pool)
+            else:
+                recipes.extend(random.sample(pool, need))
+        return recipes
