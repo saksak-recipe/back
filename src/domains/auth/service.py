@@ -12,8 +12,10 @@ from core.exception.exceptions import (
     UnAuthorizedException,
     UserNotFoundException,
 )
+from core.quota import DailyQuotaStore
 from domains.auth import kakao_client
 from domains.auth.email_service import EmailService
+from domains.auth.login_lock_store import LoginLockStore
 from domains.auth.refresh_store import RefreshTokenStore
 from domains.auth.schemas import (
     EmailResendRequest,
@@ -54,12 +56,16 @@ class AuthService:
         verification_store: VerificationCodeStore,
         email_service: EmailService,
         signup_pending_store: SignupPendingStore,
+        login_lock_store: LoginLockStore,
+        daily_quota_store: DailyQuotaStore,
     ) -> None:
         self.user_repo = user_repo
         self.refresh_store = refresh_store
         self.verification_store = verification_store
         self.email_service = email_service
         self.signup_pending_store = signup_pending_store
+        self.login_lock_store = login_lock_store
+        self.daily_quota_store = daily_quota_store
 
     async def issue_tokens(self, user: User) -> TokenPair:
         access_token = security.create_jwt(user.id)
@@ -187,12 +193,14 @@ class AuthService:
         )
         user.password = security.hash_password(request.password)
         await self.user_repo.save(user)
+        await self.login_lock_store.clear(email)
         return {"ok": True}
 
     async def login(self, request: LogInRequest) -> LogInResponse:
-        user = await self.user_repo.get_user_by_email(str(request.email))
+        email = str(request.email)
+        user = await self.user_repo.get_user_by_email(email)
         if not user:
-            pending = await self.signup_pending_store.get(str(request.email))
+            pending = await self.signup_pending_store.get(email)
             if pending:
                 raise UnAuthorizedException(
                     code=ErrorCode.EMAIL_NOT_VERIFIED,
@@ -201,9 +209,18 @@ class AuthService:
             raise UnAuthorizedException(
                 detail="이메일 또는 비밀번호가 올바르지 않습니다."
             )
+        if await self.login_lock_store.is_locked(email):
+            raise UnAuthorizedException(
+                code=ErrorCode.LOGIN_LOCKED,
+                detail=(
+                    "비밀번호를 여러 번 틀려 로그인이 잠겼습니다. "
+                    "비밀번호 재설정 후 다시 시도해 주세요."
+                ),
+            )
         if user.password is None:
             raise UnAuthorizedException(detail="카카오로 로그인해 주세요")
         if not security.verify_password(request.password, user.password):
+            await self.login_lock_store.record_failure(email)
             raise UnAuthorizedException(
                 detail="이메일 또는 비밀번호가 올바르지 않습니다."
             )
@@ -212,6 +229,7 @@ class AuthService:
                 code=ErrorCode.EMAIL_NOT_VERIFIED,
                 detail="이메일 인증이 필요합니다.",
             )
+        await self.login_lock_store.clear(email)
         user = await self._restore_if_within_grace(user)
         tokens = await self.issue_tokens(user)
         return self._to_auth_response(user, tokens)

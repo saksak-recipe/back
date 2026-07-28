@@ -49,12 +49,28 @@ def signup_pending_store() -> AsyncMock:
 
 
 @pytest.fixture
+def login_lock_store() -> AsyncMock:
+    store = AsyncMock()
+    store.is_locked = AsyncMock(return_value=False)
+    store.record_failure = AsyncMock(return_value=1)
+    store.clear = AsyncMock()
+    return store
+
+
+@pytest.fixture
+def daily_quota_store() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
 def auth_service(
     user_repo: AsyncMock,
     refresh_store: AsyncMock,
     verification_store: AsyncMock,
     email_service: AsyncMock,
     signup_pending_store: AsyncMock,
+    login_lock_store: AsyncMock,
+    daily_quota_store: AsyncMock,
 ) -> AuthService:
     return AuthService(
         user_repo=user_repo,
@@ -62,6 +78,8 @@ def auth_service(
         verification_store=verification_store,
         email_service=email_service,
         signup_pending_store=signup_pending_store,
+        login_lock_store=login_lock_store,
+        daily_quota_store=daily_quota_store,
     )
 
 
@@ -114,6 +132,60 @@ async def test_login_raises_on_wrong_password(
         await auth_service.login(
             LogInRequest(email="test@example.com", password="wrong-password")
         )
+
+
+async def test_login_locks_after_five_failures(
+    auth_service, user_repo, login_lock_store, existing_user
+):
+    user_repo.get_user_by_email.return_value = existing_user
+    login_lock_store.is_locked = AsyncMock(side_effect=[False] * 5 + [True])
+    login_lock_store.record_failure = AsyncMock(side_effect=[1, 2, 3, 4, 5])
+
+    for _ in range(5):
+        with pytest.raises(UnAuthorizedException) as ei:
+            await auth_service.login(
+                LogInRequest(email=existing_user.email, password="wrong-password")
+            )
+        assert ei.value.code != ErrorCode.LOGIN_LOCKED
+
+    with pytest.raises(UnAuthorizedException) as ei:
+        await auth_service.login(
+            LogInRequest(email=existing_user.email, password="password123")
+        )
+    assert ei.value.code == ErrorCode.LOGIN_LOCKED
+
+
+async def test_login_success_clears_failures(
+    auth_service, user_repo, login_lock_store, refresh_store, existing_user
+):
+    user_repo.get_user_by_email.return_value = existing_user
+    login_lock_store.is_locked = AsyncMock(return_value=False)
+    login_lock_store.clear = AsyncMock()
+    refresh_store.save = AsyncMock()
+
+    await auth_service.login(
+        LogInRequest(email=existing_user.email, password="password123")
+    )
+    login_lock_store.clear.assert_awaited_once()
+
+
+async def test_password_reset_confirm_clears_lock(
+    auth_service, user_repo, verification_store, login_lock_store, existing_user
+):
+    user_repo.get_user_by_email.return_value = existing_user
+    verification_store.verify = AsyncMock()
+    login_lock_store.clear = AsyncMock()
+    user_repo.save = AsyncMock(side_effect=lambda u: u)
+
+    await auth_service.confirm_password_reset(
+        PasswordResetConfirmRequest(
+            email=existing_user.email,
+            code="123456",
+            password="newpass12",
+            checked_password="newpass12",
+        )
+    )
+    login_lock_store.clear.assert_awaited_once_with(existing_user.email)
 
 
 async def test_login_rejects_kakao_only_user(

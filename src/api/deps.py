@@ -5,7 +5,9 @@ from core.config import settings
 from core.database import get_db
 from core.redis import get_redis
 from core.security import REFRESH_TOKEN_EXPIRE_SECONDS, get_access_token
+from core.quota import DailyQuotaStore
 from domains.auth.email_service import EmailService
+from domains.auth.login_lock_store import LoginLockStore
 from domains.auth.refresh_store import RefreshTokenStore
 from domains.auth.signup_pending_store import SignupPendingStore
 from domains.auth.verification_store import VerificationCodeStore
@@ -58,6 +60,14 @@ def get_signup_pending_store() -> SignupPendingStore:
     return SignupPendingStore(get_redis())
 
 
+def get_login_lock_store() -> LoginLockStore:
+    return LoginLockStore(get_redis())
+
+
+def get_daily_quota_store() -> DailyQuotaStore:
+    return DailyQuotaStore(get_redis())
+
+
 def get_email_service() -> EmailService:
     return EmailService(
         backend=settings.EMAIL_BACKEND,
@@ -81,6 +91,8 @@ def get_auth_service(
     verification_store: VerificationCodeStore = Depends(get_verification_store),
     email_service: EmailService = Depends(get_email_service),
     signup_pending_store: SignupPendingStore = Depends(get_signup_pending_store),
+    login_lock_store: LoginLockStore = Depends(get_login_lock_store),
+    daily_quota_store: DailyQuotaStore = Depends(get_daily_quota_store),
 ) -> AuthService:
     return AuthService(
         user_repo=user_repo,
@@ -88,6 +100,8 @@ def get_auth_service(
         verification_store=verification_store,
         email_service=email_service,
         signup_pending_store=signup_pending_store,
+        login_lock_store=login_lock_store,
+        daily_quota_store=daily_quota_store,
     )
 
 
