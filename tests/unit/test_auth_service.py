@@ -9,8 +9,10 @@ from core.exception.codes import ErrorCode
 from core.exception.exceptions import (
     BadRequestException,
     InvalidTokenException,
+    TooManyRequestsException,
     UnAuthorizedException,
 )
+from core.quota import QuotaInfo, kst_next_midnight
 from domains.auth.schemas import (
     EmailVerifyRequest,
     KakaoCompleteRequest,
@@ -20,7 +22,7 @@ from domains.auth.signup_pending_store import PendingSignup
 from domains.auth.service import AuthService
 from domains.auth.verification_store import PURPOSE_PASSWORD_RESET, PURPOSE_SIGNUP
 from domains.user.model import User
-from domains.user.schemas import LogInRequest
+from domains.user.schemas import LogInRequest, SignUpRequest
 
 
 @pytest.fixture
@@ -685,14 +687,26 @@ async def test_request_password_reset_sends_code_for_password_user(
     user_repo: AsyncMock,
     email_service: AsyncMock,
     verification_store: AsyncMock,
+    daily_quota_store: AsyncMock,
     existing_user: User,
 ):
     user_repo.get_user_by_email.return_value = existing_user
     verification_store.issue.return_value = "654321"
+    daily_quota_store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=3,
+            used=1,
+            remaining=2,
+            reset_at=kst_next_midnight(),
+        )
+    )
 
     result = await auth_service.request_password_reset("test@example.com")
 
-    assert result == {"ok": True, "message": "password_reset_email_sent"}
+    assert result["ok"] is True
+    assert result["message"] == "password_reset_email_sent"
+    assert result["quota"]["remaining"] == 2
+    daily_quota_store.consume.assert_awaited_once()
     verification_store.issue.assert_awaited_once_with(
         PURPOSE_PASSWORD_RESET, "test@example.com"
     )
@@ -781,3 +795,81 @@ async def test_confirm_password_reset_hides_kakao_only_user(
 
     assert exc_info.value.code == ErrorCode.INVALID_VERIFICATION_CODE
     verification_store.verify.assert_not_awaited()
+
+
+async def test_signup_consumes_email_quota(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    signup_pending_store: AsyncMock,
+    verification_store: AsyncMock,
+    email_service: AsyncMock,
+    daily_quota_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+    user_repo.get_user_by_nickname.return_value = None
+    daily_quota_store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=3,
+            used=1,
+            remaining=2,
+            reset_at=kst_next_midnight(),
+        )
+    )
+    verification_store.issue = AsyncMock(return_value="123456")
+
+    result = await auth_service.signup(
+        SignUpRequest(
+            email="new@example.com",
+            password="password123",
+            checked_password="password123",
+            nickname="newbie",
+        )
+    )
+
+    daily_quota_store.consume.assert_awaited_once()
+    assert result["quota"]["remaining"] == 2
+    signup_pending_store.upsert.assert_awaited_once()
+    email_service.send_verification_code.assert_awaited_once()
+
+
+async def test_signup_blocks_when_email_quota_exceeded(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    daily_quota_store: AsyncMock,
+    verification_store: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+    user_repo.get_user_by_nickname.return_value = None
+    daily_quota_store.consume = AsyncMock(
+        side_effect=TooManyRequestsException(
+            code=ErrorCode.EMAIL_SEND_LIMIT_EXCEEDED,
+            detail="인증 메일 발송 한도를 초과했습니다. 내일 다시 시도해 주세요.",
+        )
+    )
+
+    with pytest.raises(TooManyRequestsException):
+        await auth_service.signup(
+            SignUpRequest(
+                email="new@example.com",
+                password="password123",
+                checked_password="password123",
+                nickname="newbie",
+            )
+        )
+
+    verification_store.issue.assert_not_called()
+
+
+async def test_password_reset_request_skips_quota_when_no_user(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    daily_quota_store: AsyncMock,
+    email_service: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+
+    result = await auth_service.request_password_reset("ghost@example.com")
+
+    daily_quota_store.consume.assert_not_called()
+    email_service.send_verification_code.assert_not_called()
+    assert "quota" not in result

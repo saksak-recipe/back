@@ -1,7 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from core.quota import QuotaInfo
 from domains.user.schemas import UserInfoResponse
 
 
@@ -14,8 +15,24 @@ class EmailResendRequest(BaseModel):
     email: EmailStr
 
 
+class EmailResendResponse(BaseModel):
+    model_config = ConfigDict(exclude_none=True)
+
+    ok: bool = True
+    expires_in_seconds: int
+    quota: QuotaInfo | None = None
+
+
 class PasswordResetRequest(BaseModel):
     email: EmailStr
+
+
+class PasswordResetRequestResponse(BaseModel):
+    model_config = ConfigDict(exclude_none=True)
+
+    ok: bool = True
+    message: str = "password_reset_email_sent"
+    quota: QuotaInfo | None = None
 
 
 class PasswordResetConfirmRequest(BaseModel):

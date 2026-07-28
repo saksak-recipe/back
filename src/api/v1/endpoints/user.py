@@ -16,7 +16,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.post(
-    "/signup", status_code=status.HTTP_201_CREATED, response_model=SignUpResponse
+    "/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SignUpResponse,
+    response_model_exclude_none=True,
 )
 async def signup(
     request: SignUpRequest,

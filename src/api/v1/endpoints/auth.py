@@ -3,6 +3,7 @@ from fastapi import APIRouter, status, Depends
 from api.deps import get_auth_service
 from domains.auth.schemas import (
     EmailResendRequest,
+    EmailResendResponse,
     EmailVerifyRequest,
     KakaoAuthResponse,
     KakaoCompleteRequest,
@@ -10,6 +11,7 @@ from domains.auth.schemas import (
     KakaoNeedsProfileResponse,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
+    PasswordResetRequestResponse,
 )
 from domains.auth.service import AuthService
 from domains.user.schemas import LogInRequest, LogInResponse, RefreshRequest
@@ -35,20 +37,32 @@ async def verify_email(
     return await auth_service.verify_email(request)
 
 
-@router.post("/email/resend", status_code=status.HTTP_200_OK)
+@router.post(
+    "/email/resend",
+    status_code=status.HTTP_200_OK,
+    response_model=EmailResendResponse,
+    response_model_exclude_none=True,
+)
 async def resend_verification(
     request: EmailResendRequest,
     auth_service: AuthService = Depends(get_auth_service),
-) -> dict:
-    return await auth_service.resend_verification(request)
+) -> EmailResendResponse:
+    result = await auth_service.resend_verification(request)
+    return EmailResendResponse(**result)
 
 
-@router.post("/password/reset/request", status_code=status.HTTP_200_OK)
+@router.post(
+    "/password/reset/request",
+    status_code=status.HTTP_200_OK,
+    response_model=PasswordResetRequestResponse,
+    response_model_exclude_none=True,
+)
 async def request_password_reset(
     request: PasswordResetRequest,
     auth_service: AuthService = Depends(get_auth_service),
-) -> dict:
-    return await auth_service.request_password_reset(str(request.email))
+) -> PasswordResetRequestResponse:
+    result = await auth_service.request_password_reset(str(request.email))
+    return PasswordResetRequestResponse(**result)
 
 
 @router.post("/password/reset/confirm", status_code=status.HTTP_200_OK)

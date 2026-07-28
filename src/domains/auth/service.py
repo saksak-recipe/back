@@ -12,7 +12,12 @@ from core.exception.exceptions import (
     UnAuthorizedException,
     UserNotFoundException,
 )
-from core.quota import DailyQuotaStore
+from core.quota import (
+    EMAIL_SEND_DAILY_LIMIT,
+    KIND_EMAIL_SEND,
+    DailyQuotaStore,
+    QuotaInfo,
+)
 from domains.auth import kakao_client
 from domains.auth.email_service import EmailService
 from domains.auth.login_lock_store import LoginLockStore
@@ -67,6 +72,11 @@ class AuthService:
         self.login_lock_store = login_lock_store
         self.daily_quota_store = daily_quota_store
 
+    async def _consume_email_send(self, email: str) -> QuotaInfo:
+        return await self.daily_quota_store.consume(
+            KIND_EMAIL_SEND, email, EMAIL_SEND_DAILY_LIMIT
+        )
+
     async def issue_tokens(self, user: User) -> TokenPair:
         access_token = security.create_jwt(user.id)
         refresh_token = security.create_refresh_token()
@@ -116,11 +126,17 @@ class AuthService:
         )
         await self.signup_pending_store.upsert(pending)
 
+        quota = await self._consume_email_send(email)
         code = await self.verification_store.issue(PURPOSE_SIGNUP, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
         )
-        return {"email": email, "message": "verification_code_sent"}
+        return {
+            "email": email,
+            "message": "verification_code_sent",
+            "expires_in_seconds": CODE_TTL_SECONDS,
+            "quota": quota.model_dump(mode="json"),
+        }
 
     async def verify_email(self, request: EmailVerifyRequest) -> LogInResponse:
         email = str(request.email)
@@ -161,22 +177,31 @@ class AuthService:
         if not pending:
             raise UserNotFoundException()
 
+        quota = await self._consume_email_send(email)
         code = await self.verification_store.resend(PURPOSE_SIGNUP, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
         )
-        return {"ok": True, "expires_in_seconds": CODE_TTL_SECONDS}
+        return {
+            "ok": True,
+            "expires_in_seconds": CODE_TTL_SECONDS,
+            "quota": quota.model_dump(mode="json"),
+        }
 
     async def request_password_reset(self, email: str) -> dict:
         response = {"ok": True, "message": "password_reset_email_sent"}
         user = await self.user_repo.get_user_by_email(email)
         if not user or user.password is None:
             return response
+        quota = await self._consume_email_send(email)
         code = await self.verification_store.issue(PURPOSE_PASSWORD_RESET, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_PASSWORD_RESET
         )
-        return response
+        return {
+            **response,
+            "quota": quota.model_dump(mode="json"),
+        }
 
     async def confirm_password_reset(
         self, request: PasswordResetConfirmRequest

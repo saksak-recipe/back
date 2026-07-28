@@ -4,6 +4,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from core.quota import QuotaInfo
 from domains.user.model import User
 
 
@@ -69,9 +70,12 @@ class SignUpRequest(BaseModel):
 
 
 class SignUpResponse(BaseModel):
+    model_config = ConfigDict(exclude_none=True)
+
     email: EmailStr
     message: str = "verification_code_sent"
     expires_in_seconds: int = 180
+    quota: QuotaInfo | None = None
 
 
 class LogInRequest(BaseModel):
