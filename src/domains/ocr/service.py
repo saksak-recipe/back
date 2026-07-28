@@ -1,6 +1,8 @@
 from collections.abc import Awaitable, Callable
+from uuid import UUID
 
 from core.exception.exceptions import BadRequestException
+from core.quota import DailyQuotaStore, KIND_OCR, OCR_DAILY_LIMIT
 from domains.ocr.llm_parser import parse_receipt_text
 from domains.ocr.naver_client import extract_text
 from domains.ocr.schemas import OcrReceiptResponse
@@ -33,6 +35,8 @@ class OcrService:
         llm_model: str,
         extract_text_fn: ExtractTextFn = extract_text,
         parse_receipt_text_fn: ParseReceiptTextFn = parse_receipt_text,
+        daily_quota_store: DailyQuotaStore,
+        user_id: UUID,
     ) -> None:
         self._api_url = api_url
         self._secret_key = secret_key
@@ -40,6 +44,8 @@ class OcrService:
         self._llm_model = llm_model
         self._extract_text = extract_text_fn
         self._parse_receipt_text = parse_receipt_text_fn
+        self._daily_quota_store = daily_quota_store
+        self._user_id = user_id
 
     def _resolve_format(
         self, content_type: str | None, filename: str | None
@@ -67,6 +73,9 @@ class OcrService:
             raise BadRequestException(detail="이미지 파일이 비어 있습니다.")
 
         image_format = self._resolve_format(content_type, filename)
+        quota = await self._daily_quota_store.consume(
+            KIND_OCR, str(self._user_id), OCR_DAILY_LIMIT
+        )
         ocr_text = await self._extract_text(
             image_bytes,
             format=image_format,
@@ -78,4 +87,4 @@ class OcrService:
             api_key=self._openai_api_key,
             model=self._llm_model,
         )
-        return OcrReceiptResponse(ingredients=ingredients)
+        return OcrReceiptResponse(ingredients=ingredients, quota=quota)

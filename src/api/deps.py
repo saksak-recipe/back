@@ -250,11 +250,14 @@ def get_notification_service(
 
 
 def get_ocr_service(
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    quota_store: DailyQuotaStore = Depends(get_daily_quota_store),
 ) -> OcrService:
     return OcrService(
         api_url=settings.NAVER_OCR_API_URL,
         secret_key=settings.NAVER_OCR_SECRET_KEY.get_secret_value(),
         openai_api_key=settings.OPENAI_API_KEY.get_secret_value(),
         llm_model=settings.OCR_LLM_MODEL,
+        daily_quota_store=quota_store,
+        user_id=user.id,
     )

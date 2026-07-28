@@ -4,6 +4,7 @@ from httpx import AsyncClient
 
 from api.deps import get_ocr_service
 from core.exception.codes import ErrorCode
+from core.quota import QuotaInfo, kst_next_midnight
 from domains.ocr.schemas import OcrReceiptResponse
 from main import app
 
@@ -22,7 +23,12 @@ async def test_ocr_receipt_success(
 ):
     mock_service = AsyncMock()
     mock_service.parse_receipt = AsyncMock(
-        return_value=OcrReceiptResponse(ingredients=["왕교자", "계란"])
+        return_value=OcrReceiptResponse(
+            ingredients=["왕교자", "계란"],
+            quota=QuotaInfo(
+                limit=3, used=1, remaining=2, reset_at=kst_next_midnight()
+            ),
+        )
     )
     app.dependency_overrides[get_ocr_service] = lambda: mock_service
     try:
@@ -35,7 +41,10 @@ async def test_ocr_receipt_success(
         app.dependency_overrides.pop(get_ocr_service, None)
 
     assert response.status_code == 200
-    assert response.json() == {"ingredients": ["왕교자", "계란"]}
+    body = response.json()
+    assert body["ingredients"] == ["왕교자", "계란"]
+    assert body["quota"]["limit"] == 3
+    assert body["quota"]["remaining"] == 2
     mock_service.parse_receipt.assert_awaited_once()
     args = mock_service.parse_receipt.await_args.args
     assert args[0] == b"fake-bytes"
