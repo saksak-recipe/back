@@ -1,7 +1,7 @@
 from datetime import date
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 IngredientStatus = Literal["expired", "soon", "ok", "unknown"]
 
@@ -31,6 +31,13 @@ class AddIngredientRequest(BaseModel):
                 raise ValueError("식재료 이름은 45자 이하여야 합니다.")
             cleaned.append(name)
         return cleaned
+
+    @model_validator(mode="after")
+    def clear_shared_expiration_for_batch(self) -> Self:
+        # 다건 추가는 재료별 유통기한을 받을 수 없어 공유 값을 무시한다.
+        if len(self.ingredients) > 1 and self.expiration_date is not None:
+            self.expiration_date = None
+        return self
 
 
 class UpdateIngredientRequest(BaseModel):

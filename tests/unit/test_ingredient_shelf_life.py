@@ -273,6 +273,36 @@ async def test_batch_autofill_uses_per_name_shelf_life(
     assert logs[0].ingredient_name == "미등록"
 
 
+async def test_batch_ignores_shared_expiration_date(
+    db_session,
+    test_user: User,
+    shelf_life_service: IngredientShelfLifeService,
+):
+    await _add_master(db_session, "우유", 7)
+    await _add_master(db_session, "계란", 14)
+    purchase = date.today()
+    shared_expiration = purchase + timedelta(days=3)
+    service = IngredientService(
+        user=test_user,
+        ingredient_repo=IngredientRepository(db_session),
+        shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
+    )
+
+    request = AddIngredientRequest(
+        ingredients=["우유", "계란"],
+        purchase_date=purchase,
+        expiration_date=shared_expiration,
+    )
+    assert request.expiration_date is None
+
+    result = await service.add_ingredients(request)
+
+    by_name = {item.ingredient_name: item for item in result}
+    assert by_name["우유"].expiration_date == purchase + timedelta(days=7)
+    assert by_name["계란"].expiration_date == purchase + timedelta(days=14)
+
+
 async def test_shopping_to_ingredient_autofills(
     db_session,
     test_user: User,
