@@ -1,6 +1,8 @@
 from fastapi import APIRouter, status, Depends
 
 from api.deps import get_auth_service
+from core.exception.exceptions import TooManyRequestsException
+from core.exception.openapi import create_error_response
 from domains.auth.schemas import (
     EmailResendRequest,
     EmailResendResponse,
@@ -42,6 +44,7 @@ async def verify_email(
     status_code=status.HTTP_200_OK,
     response_model=EmailResendResponse,
     response_model_exclude_none=True,
+    responses=create_error_response(TooManyRequestsException),
 )
 async def resend_verification(
     request: EmailResendRequest,
@@ -56,6 +59,7 @@ async def resend_verification(
     status_code=status.HTTP_200_OK,
     response_model=PasswordResetRequestResponse,
     response_model_exclude_none=True,
+    responses=create_error_response(TooManyRequestsException),
 )
 async def request_password_reset(
     request: PasswordResetRequest,

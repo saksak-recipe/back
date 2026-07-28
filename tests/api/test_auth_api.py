@@ -239,6 +239,30 @@ async def test_password_reset_e2e(client: AsyncClient, fixed_email_code):
     assert new_login.json()["access_token"]
 
 
+async def test_login_locked_after_five_wrong_passwords(
+    client: AsyncClient, fixed_email_code
+):
+    email = "locked@example.com"
+    password = "password123"
+    await _signup(client, email=email, nickname="lockeduser", password=password)
+    await _verify(client, email=email)
+
+    for _ in range(5):
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "wrong-password"},
+        )
+        assert response.status_code == 401
+        assert response.json()["code"] == ErrorCode.UNAUTHORIZED
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert response.status_code == 401
+    assert response.json()["code"] == ErrorCode.LOGIN_LOCKED
+
+
 async def test_password_reset_request_hides_missing_email(
     client: AsyncClient, fixed_email_code
 ):

@@ -76,8 +76,8 @@ class ConflictException(BaseCustomException):
 class TooManyRequestsException(BaseCustomException):
     def __init__(
         self,
-        code: str | ErrorCode,
-        detail: str,
+        code: str | ErrorCode = ErrorCode.EMAIL_SEND_LIMIT_EXCEEDED,
+        detail: str = "요청 한도를 초과했습니다.",
         *,
         extra: dict | None = None,
     ):

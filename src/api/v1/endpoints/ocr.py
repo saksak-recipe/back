@@ -4,6 +4,7 @@ from api.deps import get_ocr_service
 from core.exception.exceptions import (
     BadRequestException,
     ExternalServiceException,
+    TooManyRequestsException,
     UnAuthorizedException,
 )
 from core.exception.openapi import create_error_response
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/ocr", tags=["ocr"])
         UnAuthorizedException,
         BadRequestException,
         ExternalServiceException,
+        TooManyRequestsException,
     ),
 )
 async def parse_receipt(
