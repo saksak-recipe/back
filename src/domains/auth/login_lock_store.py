@@ -20,7 +20,10 @@ class LoginLockStore:
     async def record_failure(self, email: str) -> int:
         key = self._key(email)
         n = await self._redis.incr(key)
-        if n == 1:
+        if n >= LOGIN_FAIL_LIMIT:
+            # Locked until password-reset clear(); do not auto-expire via TTL.
+            await self._redis.persist(key)
+        else:
             await self._redis.expire(key, _FAIL_TTL_SECONDS)
         return int(n)
 

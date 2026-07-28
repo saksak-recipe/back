@@ -14,6 +14,7 @@ from core.exception.exceptions import (
 )
 from core.quota import QuotaInfo, kst_next_midnight
 from domains.auth.schemas import (
+    EmailResendRequest,
     EmailVerifyRequest,
     KakaoCompleteRequest,
     PasswordResetConfirmRequest,
@@ -873,3 +874,34 @@ async def test_password_reset_request_skips_quota_when_no_user(
     daily_quota_store.consume.assert_not_called()
     email_service.send_verification_code.assert_not_called()
     assert "quota" not in result
+
+
+async def test_resend_verification_skips_quota_on_cooldown(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    signup_pending_store: AsyncMock,
+    verification_store: AsyncMock,
+    daily_quota_store: AsyncMock,
+    email_service: AsyncMock,
+):
+    user_repo.get_user_by_email.return_value = None
+    signup_pending_store.get.return_value = PendingSignup(
+        email="pending@example.com",
+        password_hash="hashed",
+        nickname="pending",
+    )
+    verification_store.resend = AsyncMock(
+        side_effect=BadRequestException(
+            code=ErrorCode.VERIFICATION_COOLDOWN,
+            detail="인증 코드 재발송은 1회만 가능합니다.",
+        )
+    )
+
+    with pytest.raises(BadRequestException) as exc_info:
+        await auth_service.resend_verification(
+            EmailResendRequest(email="pending@example.com")
+        )
+
+    assert exc_info.value.code == ErrorCode.VERIFICATION_COOLDOWN
+    daily_quota_store.consume.assert_not_called()
+    email_service.send_verification_code.assert_not_called()

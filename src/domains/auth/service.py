@@ -177,8 +177,9 @@ class AuthService:
         if not pending:
             raise UserNotFoundException()
 
-        quota = await self._consume_email_send(email)
+        # Cooldown check before quota: VERIFICATION_COOLDOWN must not burn daily limit.
         code = await self.verification_store.resend(PURPOSE_SIGNUP, email)
+        quota = await self._consume_email_send(email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_SIGNUP
         )
