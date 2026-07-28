@@ -53,3 +53,17 @@ Task 4: complete (commits 7f6ca77..79b5e2f, review clean; minor: datasource uid 
 Task 5: complete (commits 79b5e2f..8020bda, review clean; minors: Alertmanager test curl example)
 Final: Ready to merge after cbaab50 highr latency fix
 Final: merged to main (fast-forward cbaab50); feature branch deleted
+
+## feat/auth-ai-rate-limits
+Plan: docs/superpowers/plans/2026-07-28-auth-ai-rate-limits.md
+Base: working in place on feat/auth-ai-rate-limits (from main @ 3ed9b8c)
+Task 1: complete (commits 3ed9b8c..3ef38b7, review clean; minors: unused imports in test, unknown kind KeyError)
+Task 2: complete (commits 3ef38b7..f26dd97, review clean; minors: no TTL test, INCR+EXPIRE race)
+Task 3: complete (commits f26dd97..0e22cd2, review clean; minors: clear email assert, locked+wrong pwd untested)
+Task 4: complete (commits 0e22cd2..a5360c5, review clean; minors: no resend unit test, consume-before-SMTP)
+Task 4: complete (commits 0e22cd2..a5360c5, review clean; minors: no resend unit test, SMTP fail keeps consume)
+Task 5: complete (commits a5360c5..d55b37f, review clean; minors: duplicate test, external fail keeps consume)
+Task 6: complete (commits d55b37f..3e8f922, review clean; minors: duplicate empty test, no rag API e2e)
+Task 7: complete (commits 3e8f922..4ba9461, review clean; minors: swagger example generic, login OpenAPI gap)
+Final: Ready to merge after ab26942 (lock persist + resend quota order); minors only
+Final: merged to main (fast-forward); feature branch deleted
