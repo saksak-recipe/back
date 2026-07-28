@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from core.database import async_session_factory
+from domains.group.model import Group, GroupInvite, GroupMember  # noqa: F401
+from domains.ingredient.model import Ingredient  # noqa: F401
+from domains.notification.model import Notification  # noqa: F401
+from domains.saved_recipe.model import SavedRecipe  # noqa: F401
+from domains.shopping.model import ShoppingItem  # noqa: F401
 from domains.user.repository import UserRepository
 from domains.user.service import UserService
 

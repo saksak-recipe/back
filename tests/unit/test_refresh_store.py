@@ -29,3 +29,17 @@ async def test_delete_makes_token_invalid(store: RefreshTokenStore):
     await store.save(raw, user_id)
     await store.delete(raw)
     assert await store.pop_user_id(raw) is None
+
+
+async def test_revoke_all_for_user_invalidates_all_tokens(store: RefreshTokenStore):
+    user_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    await store.save("token-a", user_id)
+    await store.save("token-b", user_id)
+    await store.save("token-other", other_id)
+
+    await store.revoke_all_for_user(user_id)
+
+    assert await store.pop_user_id("token-a") is None
+    assert await store.pop_user_id("token-b") is None
+    assert await store.pop_user_id("token-other") == other_id

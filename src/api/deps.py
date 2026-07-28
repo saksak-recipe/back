@@ -1,12 +1,20 @@
+from uuid import UUID
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core import security
 from core.config import settings
 from core.database import get_db
+from core.exception.exceptions import (
+    InvalidTokenException,
+    UnAuthorizedException,
+)
 from core.redis import get_redis
 from core.security import REFRESH_TOKEN_EXPIRE_SECONDS, get_access_token
 from core.quota import DailyQuotaStore
 from domains.auth.email_service import EmailService
+from domains.auth.kakao_pending_store import KakaoPendingStore
 from domains.auth.login_lock_store import LoginLockStore
 from domains.auth.refresh_store import RefreshTokenStore
 from domains.auth.signup_pending_store import SignupPendingStore
@@ -44,12 +52,15 @@ def get_user_repo(session: AsyncSession = Depends(get_db)) -> UserRepository:
     return UserRepository(session)
 
 
-def get_user_service(user_repo: UserRepository = Depends(get_user_repo)) -> UserService:
-    return UserService(user_repo=user_repo)
-
-
 def get_refresh_store() -> RefreshTokenStore:
     return RefreshTokenStore(get_redis(), ttl_seconds=REFRESH_TOKEN_EXPIRE_SECONDS)
+
+
+def get_user_service(
+    user_repo: UserRepository = Depends(get_user_repo),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+) -> UserService:
+    return UserService(user_repo=user_repo, refresh_store=refresh_store)
 
 
 def get_verification_store() -> VerificationCodeStore:
@@ -58,6 +69,10 @@ def get_verification_store() -> VerificationCodeStore:
 
 def get_signup_pending_store() -> SignupPendingStore:
     return SignupPendingStore(get_redis())
+
+
+def get_kakao_pending_store() -> KakaoPendingStore:
+    return KakaoPendingStore(get_redis())
 
 
 def get_login_lock_store() -> LoginLockStore:
@@ -91,6 +106,7 @@ def get_auth_service(
     verification_store: VerificationCodeStore = Depends(get_verification_store),
     email_service: EmailService = Depends(get_email_service),
     signup_pending_store: SignupPendingStore = Depends(get_signup_pending_store),
+    kakao_pending_store: KakaoPendingStore = Depends(get_kakao_pending_store),
     login_lock_store: LoginLockStore = Depends(get_login_lock_store),
     daily_quota_store: DailyQuotaStore = Depends(get_daily_quota_store),
 ) -> AuthService:
@@ -100,6 +116,7 @@ def get_auth_service(
         verification_store=verification_store,
         email_service=email_service,
         signup_pending_store=signup_pending_store,
+        kakao_pending_store=kakao_pending_store,
         login_lock_store=login_lock_store,
         daily_quota_store=daily_quota_store,
     )
@@ -107,9 +124,18 @@ def get_auth_service(
 
 async def get_current_user(
     access_token: str = Depends(get_access_token),
-    auth_service: AuthService = Depends(get_auth_service),
+    user_repo: UserRepository = Depends(get_user_repo),
 ) -> User:
-    return await auth_service.get_user_by_token(access_token)
+    try:
+        user_id = UUID(security.decode_jwt(access_token))
+    except (ValueError, TypeError) as exc:
+        raise InvalidTokenException(detail="유효하지 않은 토큰입니다.") from exc
+    user = await user_repo.get_user_by_id(user_id)
+    if not user:
+        raise UnAuthorizedException(detail="사용자를 찾을 수 없습니다.")
+    if user.deleted_at is not None:
+        raise UnAuthorizedException(detail="사용자를 찾을 수 없습니다.")
+    return user
 
 
 def get_ingredient_repo(
@@ -130,15 +156,35 @@ def get_shelf_life_service(
     return IngredientShelfLifeService(repo=shelf_life_repo)
 
 
+def get_notification_repo(
+    session: AsyncSession = Depends(get_db),
+) -> NotificationRepository:
+    return NotificationRepository(session)
+
+
+def get_notification_service(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> NotificationService:
+    return NotificationService(
+        user=user,
+        notification_repo=NotificationRepository(session),
+        ingredient_repo=IngredientRepository(session),
+        group_repo=GroupRepository(session),
+    )
+
+
 def get_ingredient_service(
     user: User = Depends(get_current_user),
     ingredient_repo: IngredientRepository = Depends(get_ingredient_repo),
     shelf_life_service: IngredientShelfLifeService = Depends(get_shelf_life_service),
+    notification_service: NotificationService = Depends(get_notification_service),
 ) -> IngredientService:
     return IngredientService(
         user=user,
         ingredient_repo=ingredient_repo,
         shelf_life_service=shelf_life_service,
+        notification_service=notification_service,
     )
 
 
@@ -220,34 +266,19 @@ def get_saved_recipe_service(
 def get_group_service(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-    shelf_life_service: IngredientShelfLifeService = Depends(get_shelf_life_service),
+    ingredient_service: IngredientService = Depends(get_ingredient_service),
+    shopping_service: ShoppingService = Depends(get_shopping_service),
+    notification_service: NotificationService = Depends(get_notification_service),
 ) -> GroupService:
     return GroupService(
         user=user,
         group_repo=GroupRepository(session),
         user_repo=UserRepository(session),
+        ingredient_service=ingredient_service,
+        shopping_service=shopping_service,
+        notification_service=notification_service,
         ingredient_repo=IngredientRepository(session),
         shopping_repo=ShoppingRepository(session),
-        notification_repo=NotificationRepository(session),
-        shelf_life_service=shelf_life_service,
-    )
-
-
-def get_notification_repo(
-    session: AsyncSession = Depends(get_db),
-) -> NotificationRepository:
-    return NotificationRepository(session)
-
-
-def get_notification_service(
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
-) -> NotificationService:
-    return NotificationService(
-        user=user,
-        notification_repo=NotificationRepository(session),
-        ingredient_repo=IngredientRepository(session),
-        group_repo=GroupRepository(session),
     )
 
 

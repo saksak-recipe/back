@@ -41,9 +41,14 @@ class UserRepository:
         return await self._get_one(User.kakao_id == kakao_id)
 
     async def add_user(self, user: User):
-        self.session.add(user)
-        await self.session.flush()
-        return user
+        try:
+            self.session.add(user)
+            await self.session.flush()
+            return user
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="사용자 저장 중 DB 오류가 발생했습니다."
+            ) from e
 
     async def save(self, user: User) -> User:
         try:

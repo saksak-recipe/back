@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-from datetime import date, datetime, timezone
 from uuid import UUID
 
 from core.exception.codes import ErrorCode
@@ -27,23 +26,17 @@ from domains.group.schemas import (
     MergeResponse,
     UpdateGroupRequest,
 )
-from domains.ingredient.repository import IngredientRepository
+from domains.ingredient.mappers import to_get_response
 from domains.ingredient.model import Ingredient
-from domains.ingredient_shelf_life.service import IngredientShelfLifeService
-from domains.notification.repository import NotificationRepository
-from domains.notification.service import NotificationService
+from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.schemas import (
     AddIngredientRequest,
     AddIngredientResponse,
     GetIngredientResponse,
     UpdateIngredientRequest,
 )
-from domains.ingredient.service import (
-    _ensure_expiration_valid,
-    _list_sort_key,
-    _to_add_response,
-    _to_get_response,
-)
+from domains.ingredient.service import IngredientService
+from domains.notification.service import NotificationService
 from domains.shopping.model import ShoppingItem
 from domains.shopping.repository import ShoppingRepository
 from domains.shopping.schemas import (
@@ -51,6 +44,7 @@ from domains.shopping.schemas import (
     ShoppingItemResponse,
     UpdateShoppingItemRequest,
 )
+from domains.shopping.service import ShoppingService
 from domains.user.model import User
 from domains.user.repository import UserRepository
 
@@ -61,18 +55,20 @@ class GroupService:
         user: User,
         group_repo: GroupRepository,
         user_repo: UserRepository,
+        ingredient_service: IngredientService,
+        shopping_service: ShoppingService,
+        notification_service: NotificationService,
         ingredient_repo: IngredientRepository,
         shopping_repo: ShoppingRepository,
-        notification_repo: NotificationRepository,
-        shelf_life_service: IngredientShelfLifeService,
     ) -> None:
         self.user = user
         self.group_repo = group_repo
         self.user_repo = user_repo
+        self.ingredient_service = ingredient_service
+        self.shopping_service = shopping_service
+        self.notification_service = notification_service
         self.ingredient_repo = ingredient_repo
         self.shopping_repo = shopping_repo
-        self.notification_repo = notification_repo
-        self.shelf_life_service = shelf_life_service
 
     async def create(self, request: CreateGroupRequest) -> GroupResponse:
         if await self.group_repo.get_membership(self.user.id) is not None:
@@ -119,7 +115,11 @@ class GroupService:
                 code=ErrorCode.OWNER_CANNOT_LEAVE,
                 detail="그룹 소유자는 그룹을 나갈 수 없습니다.",
             )
-        await self.group_repo.delete_member(membership.group_id, self.user.id)
+        group_id = membership.group_id
+        await self.group_repo.delete_member(group_id, self.user.id)
+        await self.group_repo.cancel_pending_invites_for_invitee(
+            self.user.id, group_id=group_id
+        )
 
     async def kick(self, user_id: UUID) -> None:
         membership, _ = await self._require_owner()
@@ -132,7 +132,7 @@ class GroupService:
             or target_membership.group_id != membership.group_id
         ):
             raise NotFoundException(
-                code=ErrorCode.GROUP_NOT_FOUND,
+                code=ErrorCode.MEMBER_NOT_FOUND,
                 detail="그룹 멤버를 찾을 수 없습니다.",
             )
         if target_membership.role == GroupRole.owner:
@@ -153,6 +153,16 @@ class GroupService:
                 detail="자기 자신을 초대할 수 없습니다.",
             )
 
+        invitee_membership = await self.group_repo.get_membership(invitee.id)
+        if (
+            invitee_membership is not None
+            and invitee_membership.group_id == group.id
+        ):
+            raise ConflictException(
+                code=ErrorCode.ALREADY_IN_GROUP,
+                detail="이미 이 그룹의 멤버입니다.",
+            )
+
         invite = await self.group_repo.find_pending_invite(group.id, invitee.id)
         created_new = False
         if invite is None:
@@ -165,13 +175,7 @@ class GroupService:
             )
             created_new = True
         if created_new:
-            notif_service = NotificationService(
-                user=self.user,
-                notification_repo=self.notification_repo,
-                ingredient_repo=self.ingredient_repo,
-                group_repo=self.group_repo,
-            )
-            await notif_service.create_group_invite_notification(
+            await self.notification_service.create_group_invite_notification(
                 invitee_id=invitee.id,
                 invite_id=invite.id,
                 group_id=group.id,
@@ -207,6 +211,9 @@ class GroupService:
             )
         )
         invite.status = InviteStatus.accepted
+        await self.group_repo.cancel_pending_invites_for_invitee(
+            self.user.id, exclude_invite_id=invite.id
+        )
         await self.group_repo.session.flush()
 
         group = await self.group_repo.get_group_with_members(group.id)
@@ -238,6 +245,7 @@ class GroupService:
                 role=GroupRole.member,
             )
         )
+        await self.group_repo.cancel_pending_invites_for_invitee(self.user.id)
         group = await self.group_repo.get_group_with_members(group.id)
         assert group is not None
         return await self._to_group_response(group)
@@ -249,191 +257,67 @@ class GroupService:
 
     async def list_ingredients(self) -> list[GetIngredientResponse]:
         membership, _ = await self._require_membership()
-        ingredients = await self.ingredient_repo.list_by_group(membership.group_id)
-
-        today = date.today()
-        sorted_items = sorted(ingredients, key=lambda item: _list_sort_key(item, today))
-        return [_to_get_response(item, today) for item in sorted_items]
+        return await self.ingredient_service.list_for_group(membership.group_id)
 
     async def add_ingredients(
         self, request: AddIngredientRequest
     ) -> list[AddIngredientResponse]:
         membership, _ = await self._require_membership()
-        _ensure_expiration_valid(request.purchase_date, request.expiration_date)
-
-        seen: set[str] = set()
-        for name in request.ingredients:
-            if name in seen:
-                raise ConflictException(
-                    code=ErrorCode.INGREDIENT_NAME_CONFLICT,
-                    detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
-                )
-            seen.add(name)
-            if (
-                await self.ingredient_repo.find_name_in_group(membership.group_id, name)
-                is not None
-            ):
-                raise ConflictException(
-                    code=ErrorCode.INGREDIENT_NAME_CONFLICT,
-                    detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
-                )
-
-        expirations = await self.shelf_life_service.resolve_expirations_on_add(
-            names=request.ingredients,
-            purchase_date=request.purchase_date,
-            expiration_date=request.expiration_date,
-            user_id=self.user.id,
+        return await self.ingredient_service.add_for_group(
+            membership.group_id, request
         )
-        ingredients = [
-            Ingredient(
-                user_id=self.user.id,
-                group_id=membership.group_id,
-                ingredient_name=name,
-                purchase_date=request.purchase_date,
-                expiration_date=expiration,
-            )
-            for name, expiration in zip(request.ingredients, expirations, strict=True)
-        ]
-        saved = await self.ingredient_repo.add_ingredient(ingredients)
-
-        today = date.today()
-        return [_to_add_response(item, today) for item in saved]
 
     async def update_ingredient(
         self, ingredient_id: int, request: UpdateIngredientRequest
     ) -> GetIngredientResponse:
-        updates = request.model_dump(exclude_unset=True)
-        if not updates:
-            raise BadRequestException(detail="수정할 필드가 없습니다.")
-
         membership, _ = await self._require_membership()
-        ingredient = await self.ingredient_repo.get_by_id_in_group(
-            ingredient_id, membership.group_id
+        return await self.ingredient_service.update_for_group(
+            membership.group_id, ingredient_id, request
         )
-        if ingredient is None:
-            raise IngredientNotFoundException()
-
-        if "ingredient_name" in updates:
-            new_name = updates["ingredient_name"]
-            existing = await self.ingredient_repo.find_name_in_group(
-                membership.group_id, new_name
-            )
-            if existing is not None and existing.id != ingredient.id:
-                raise ConflictException(
-                    code=ErrorCode.INGREDIENT_NAME_CONFLICT,
-                    detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
-                )
-
-        for field, value in updates.items():
-            setattr(ingredient, field, value)
-        _ensure_expiration_valid(ingredient.purchase_date, ingredient.expiration_date)
-        return _to_get_response(ingredient)
 
     async def delete_ingredient(self, ingredient_id: int) -> None:
         membership, _ = await self._require_membership()
-        deleted = await self.ingredient_repo.delete_in_group(
-            ingredient_id, membership.group_id
+        await self.ingredient_service.delete_for_group(
+            membership.group_id, ingredient_id
         )
-        if not deleted:
-            raise IngredientNotFoundException()
 
     async def delete_all_ingredients(self) -> None:
         membership, _ = await self._require_membership()
-        await self.ingredient_repo.delete_all_in_group(membership.group_id)
+        await self.ingredient_service.delete_all_for_group(membership.group_id)
 
     async def list_shopping_items(self) -> list[ShoppingItemResponse]:
         membership, _ = await self._require_membership()
-        items = await self.shopping_repo.list_by_group(membership.group_id)
-        sorted_items = sorted(
-            items,
-            key=lambda item: (
-                item.is_checked,
-                item.created_at or datetime.min.replace(tzinfo=timezone.utc),
-            ),
-        )
-        return [ShoppingItemResponse.model_validate(item) for item in sorted_items]
+        return await self.shopping_service.list_for_group(membership.group_id)
 
     async def add_shopping_items(
         self, request: AddShoppingItemsRequest
     ) -> list[ShoppingItemResponse]:
         membership, _ = await self._require_membership()
-        unique_names = list(dict.fromkeys(request.names))
-        existing = await self.shopping_repo.get_existing_names_in_group(
-            membership.group_id, unique_names
+        return await self.shopping_service.add_for_group(
+            membership.group_id, request
         )
-        items = [
-            ShoppingItem(
-                user_id=self.user.id,
-                group_id=membership.group_id,
-                name=name,
-                is_checked=False,
-            )
-            for name in unique_names
-            if name not in existing
-        ]
-        saved = await self.shopping_repo.add_items_in_group(items)
-        return [ShoppingItemResponse.model_validate(item) for item in saved]
 
     async def update_shopping_item(
         self, item_id: int, request: UpdateShoppingItemRequest
     ) -> ShoppingItemResponse:
         membership, _ = await self._require_membership()
-        item = await self.shopping_repo.get_by_id_in_group(
-            item_id, membership.group_id
+        return await self.shopping_service.update_for_group(
+            membership.group_id, item_id, request
         )
-        if item is None:
-            raise ShoppingItemNotFoundException()
-        item.is_checked = request.is_checked
-        return ShoppingItemResponse.model_validate(item)
 
     async def delete_shopping_item(self, item_id: int) -> None:
         membership, _ = await self._require_membership()
-        deleted = await self.shopping_repo.delete_in_group(item_id, membership.group_id)
-        if not deleted:
-            raise ShoppingItemNotFoundException()
+        await self.shopping_service.delete_for_group(membership.group_id, item_id)
 
     async def delete_all_shopping_items(self) -> None:
         membership, _ = await self._require_membership()
-        await self.shopping_repo.delete_all_in_group(membership.group_id)
+        await self.shopping_service.delete_all_for_group(membership.group_id)
 
     async def shopping_to_ingredient(self, item_id: int) -> AddIngredientResponse:
         membership, _ = await self._require_membership()
-        item = await self.shopping_repo.get_by_id_in_group(item_id, membership.group_id)
-        if item is None:
-            raise ShoppingItemNotFoundException()
-        if (
-            await self.ingredient_repo.find_name_in_group(
-                membership.group_id, item.name
-            )
-            is not None
-        ):
-            raise ConflictException(
-                code=ErrorCode.INGREDIENT_NAME_CONFLICT,
-                detail="그룹에 동일한 이름의 식재료가 이미 존재합니다.",
-            )
-
-        purchase_date = date.today()
-        expirations = await self.shelf_life_service.resolve_expirations_on_add(
-            names=[item.name],
-            purchase_date=purchase_date,
-            expiration_date=None,
-            user_id=self.user.id,
+        return await self.shopping_service.to_ingredient_for_group(
+            membership.group_id, item_id
         )
-        saved = await self.ingredient_repo.add_ingredient(
-            [
-                Ingredient(
-                    user_id=self.user.id,
-                    group_id=membership.group_id,
-                    ingredient_name=item.name,
-                    purchase_date=purchase_date,
-                    expiration_date=expirations[0],
-                )
-            ]
-        )
-        deleted = await self.shopping_repo.delete_in_group(item_id, membership.group_id)
-        if not deleted:
-            raise ShoppingItemNotFoundException()
-        return _to_add_response(saved[0])
 
     async def merge(self, request: MergeRequest) -> MergeResponse:
         membership, _ = await self._require_membership()
@@ -461,13 +345,21 @@ class GroupService:
         deleted_ingredient_ids: list[int] = []
         deleted_shopping_item_ids: list[int] = []
 
+        existing_group_names = {
+            item.ingredient_name
+            for item in await self.ingredient_repo.list_by_group(membership.group_id)
+        }
+        shopping_names_to_check = [item.name for item in personal_shopping_items]
+        existing_shopping_names = (
+            await self.shopping_repo.get_existing_names_in_group(
+                membership.group_id, shopping_names_to_check
+            )
+            if shopping_names_to_check
+            else set()
+        )
+
         for ingredient in personal_ingredients:
-            if (
-                await self.ingredient_repo.find_name_in_group(
-                    membership.group_id, ingredient.ingredient_name
-                )
-                is not None
-            ):
+            if ingredient.ingredient_name in existing_group_names:
                 skipped_ingredient_ids.append(ingredient.id)
                 continue
 
@@ -482,18 +374,14 @@ class GroupService:
                     )
                 ]
             )
-            created_ingredients.append(_to_get_response(saved[0]))
+            existing_group_names.add(ingredient.ingredient_name)
+            created_ingredients.append(to_get_response(saved[0]))
             if request.mode == "move":
                 await self.ingredient_repo.delete_ingredient(ingredient.id, self.user.id)
                 deleted_ingredient_ids.append(ingredient.id)
 
         for item in personal_shopping_items:
-            if (
-                item.name
-                in await self.shopping_repo.get_existing_names_in_group(
-                    membership.group_id, [item.name]
-                )
-            ):
+            if item.name in existing_shopping_names:
                 skipped_shopping_item_ids.append(item.id)
                 continue
 
@@ -507,6 +395,7 @@ class GroupService:
                     )
                 ]
             )
+            existing_shopping_names.add(item.name)
             created_shopping_items.append(ShoppingItemResponse.model_validate(saved[0]))
             if request.mode == "move":
                 await self.shopping_repo.delete_item(item.id, self.user.id)

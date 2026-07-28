@@ -142,3 +142,23 @@ class NotificationService:
         if row is None:
             raise NotificationNotFoundException()
         await self.notification_repo.delete(row)
+
+    @staticmethod
+    def expiry_reference_keys(ingredient_id: int) -> list[str]:
+        return [
+            f"expiry_soon:{ingredient_id}",
+            f"expiry_expired:{ingredient_id}",
+        ]
+
+    async def delete_expiry_for_ingredient(self, ingredient_id: int) -> int:
+        return await self.notification_repo.delete_by_reference_keys(
+            self.expiry_reference_keys(ingredient_id)
+        )
+
+    async def delete_expiry_for_ingredients(
+        self, ingredient_ids: list[int]
+    ) -> int:
+        keys: list[str] = []
+        for ingredient_id in ingredient_ids:
+            keys.extend(self.expiry_reference_keys(ingredient_id))
+        return await self.notification_repo.delete_by_reference_keys(keys)

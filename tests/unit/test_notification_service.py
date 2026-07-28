@@ -90,3 +90,26 @@ async def test_create_group_invite_notification_for_invitee(db_session, test_use
     assert invitee_list[0].payload["invite_id"] == str(invite_id)
     owner_list = await service.list_notifications()
     assert all(n.type != "group_invite" for n in owner_list)
+
+
+@pytest.mark.asyncio
+async def test_delete_expiry_for_ingredient_removes_both_keys(db_session, test_user):
+    today = date(2026, 7, 21)
+    ingredient = Ingredient(
+        user_id=test_user.id,
+        ingredient_name="우유",
+        purchase_date=today,
+        expiration_date=today + timedelta(days=2),
+    )
+    db_session.add(ingredient)
+    await db_session.flush()
+
+    service = _notif_service(test_user, db_session)
+    await service.list_notifications(today=today)
+    assert any(n.type == "expiry_soon" for n in await service.list_notifications(today=today))
+
+    deleted = await service.delete_expiry_for_ingredient(ingredient.id)
+    assert deleted >= 1
+    remaining = await NotificationRepository(db_session).list_by_user(test_user.id)
+    assert remaining == []
+

@@ -65,8 +65,11 @@ async def test_fetch_detail_rejects_empty_parsed_response():
     crawler = RecipeCrawler()
     crawler._get = AsyncMock(return_value="<html></html>")  # type: ignore[method-assign]
 
-    with pytest.raises(ExternalServiceException):
+    with pytest.raises(ExternalServiceException) as exc_info:
         await crawler.fetch_detail("1")
+
+    assert exc_info.value.detail == "레시피 상세 정보가 비어 있어요"
+    assert "파싱하지 못했어요" not in exc_info.value.detail
 
 
 def test_parse_detail_html_extracts_tips_from_view_step_tip():

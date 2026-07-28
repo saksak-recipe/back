@@ -19,11 +19,16 @@ from domains.auth.schemas import (
     KakaoCompleteRequest,
     PasswordResetConfirmRequest,
 )
+from domains.auth.kakao_pending_store import PendingKakaoSignup
 from domains.auth.signup_pending_store import PendingSignup
 from domains.auth.service import AuthService
-from domains.auth.verification_store import PURPOSE_PASSWORD_RESET, PURPOSE_SIGNUP
+from domains.auth.verification_store import (
+    PURPOSE_KAKAO_SIGNUP,
+    PURPOSE_PASSWORD_RESET,
+    PURPOSE_SIGNUP,
+)
 from domains.user.model import User
-from domains.user.schemas import LogInRequest, SignUpRequest
+from domains.auth.schemas import LogInRequest, SignUpRequest
 
 
 @pytest.fixture
@@ -52,6 +57,14 @@ def signup_pending_store() -> AsyncMock:
 
 
 @pytest.fixture
+def kakao_pending_store() -> AsyncMock:
+    store = AsyncMock()
+    store.get_by_email = AsyncMock(return_value=None)
+    store.pop_by_email = AsyncMock(return_value=None)
+    return store
+
+
+@pytest.fixture
 def login_lock_store() -> AsyncMock:
     store = AsyncMock()
     store.is_locked = AsyncMock(return_value=False)
@@ -72,6 +85,7 @@ def auth_service(
     verification_store: AsyncMock,
     email_service: AsyncMock,
     signup_pending_store: AsyncMock,
+    kakao_pending_store: AsyncMock,
     login_lock_store: AsyncMock,
     daily_quota_store: AsyncMock,
 ) -> AuthService:
@@ -81,6 +95,7 @@ def auth_service(
         verification_store=verification_store,
         email_service=email_service,
         signup_pending_store=signup_pending_store,
+        kakao_pending_store=kakao_pending_store,
         login_lock_store=login_lock_store,
         daily_quota_store=daily_quota_store,
     )
@@ -173,7 +188,12 @@ async def test_login_success_clears_failures(
 
 
 async def test_password_reset_confirm_clears_lock(
-    auth_service, user_repo, verification_store, login_lock_store, existing_user
+    auth_service,
+    user_repo,
+    verification_store,
+    login_lock_store,
+    refresh_store,
+    existing_user,
 ):
     user_repo.get_user_by_email.return_value = existing_user
     verification_store.verify = AsyncMock()
@@ -189,6 +209,7 @@ async def test_password_reset_confirm_clears_lock(
         )
     )
     login_lock_store.clear.assert_awaited_once_with(existing_user.email)
+    refresh_store.revoke_all_for_user.assert_awaited_once_with(existing_user.id)
 
 
 async def test_login_rejects_kakao_only_user(
@@ -255,6 +276,7 @@ async def test_verify_email_issues_tokens(
     refresh_store: AsyncMock,
     verification_store: AsyncMock,
     signup_pending_store: AsyncMock,
+    kakao_pending_store: AsyncMock,
 ):
     created = User(
         id=uuid6.uuid7(),
@@ -266,6 +288,7 @@ async def test_verify_email_issues_tokens(
     user_repo.get_user_by_email.return_value = None
     user_repo.add_user.return_value = created
     verification_store.verify.return_value = None
+    kakao_pending_store.get_by_email.return_value = None
     signup_pending_store.pop.return_value = PendingSignup(
         email="verify@example.com",
         password_hash=security.hash_password("password123"),
@@ -286,6 +309,55 @@ async def test_verify_email_issues_tokens(
     added_user = user_repo.add_user.await_args.args[0]
     assert added_user.email == "verify@example.com"
     assert added_user.nickname == "verifyme"
+    assert added_user.is_email_verified is True
+    refresh_store.save.assert_awaited_once()
+
+
+async def test_verify_email_kakao_pending_issues_tokens(
+    auth_service: AuthService,
+    user_repo: AsyncMock,
+    refresh_store: AsyncMock,
+    verification_store: AsyncMock,
+    kakao_pending_store: AsyncMock,
+    signup_pending_store: AsyncMock,
+):
+    pending = PendingKakaoSignup(
+        kakao_id="999888777",
+        email="kakao-new@example.com",
+        nickname="kakaonew",
+    )
+    created = User(
+        id=uuid6.uuid7(),
+        email=pending.email,
+        password=None,
+        kakao_id=pending.kakao_id,
+        nickname=pending.nickname,
+        is_email_verified=True,
+    )
+    user_repo.get_user_by_email.return_value = None
+    user_repo.add_user.return_value = created
+    kakao_pending_store.get_by_email.return_value = pending
+    kakao_pending_store.pop_by_email.return_value = pending
+    verification_store.verify.return_value = None
+
+    response = await auth_service.verify_email(
+        EmailVerifyRequest(email="kakao-new@example.com", code="123456")
+    )
+
+    assert response.access_token
+    assert response.refresh_token
+    assert response.info.email == "kakao-new@example.com"
+    verification_store.verify.assert_awaited_once_with(
+        PURPOSE_KAKAO_SIGNUP, "kakao-new@example.com", "123456"
+    )
+    kakao_pending_store.pop_by_email.assert_awaited_once_with(
+        "kakao-new@example.com"
+    )
+    signup_pending_store.pop.assert_not_awaited()
+    user_repo.add_user.assert_awaited_once()
+    added_user = user_repo.add_user.await_args.args[0]
+    assert added_user.kakao_id == "999888777"
+    assert added_user.password is None
     assert added_user.is_email_verified is True
     refresh_store.save.assert_awaited_once()
 
@@ -417,24 +489,27 @@ async def test_login_with_kakao_returns_needs_profile_for_new_user(
     assert security.decode_kakao_signup_token(response.signup_token) == "999888777"
 
 
-async def test_complete_kakao_signup_creates_user(
+async def test_complete_kakao_signup_needs_email_verification(
     auth_service: AuthService,
     user_repo: AsyncMock,
     refresh_store: AsyncMock,
+    kakao_pending_store: AsyncMock,
+    verification_store: AsyncMock,
+    email_service: AsyncMock,
+    daily_quota_store: AsyncMock,
 ):
     user_repo.get_user_by_kakao_id.return_value = None
     user_repo.get_user_by_email.return_value = None
     user_repo.get_user_by_nickname.return_value = None
-
-    created = User(
-        id=uuid6.uuid7(),
-        email="new@example.com",
-        password=None,
-        kakao_id="999888777",
-        nickname="newbie",
-        is_email_verified=True,
+    verification_store.issue.return_value = "123456"
+    daily_quota_store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=3,
+            used=1,
+            remaining=2,
+            reset_at=kst_next_midnight(),
+        )
     )
-    user_repo.add_user.return_value = created
 
     signup_token = security.create_kakao_signup_token("999888777")
 
@@ -446,27 +521,45 @@ async def test_complete_kakao_signup_creates_user(
         )
     )
 
-    assert response.status == "authenticated"
-    assert response.info.nickname == "newbie"
-    user_repo.add_user.assert_awaited_once()
-    added_user = user_repo.add_user.await_args.args[0]
-    assert added_user.is_email_verified is True
-    refresh_store.save.assert_awaited_once()
+    assert response.status == "needs_email_verification"
+    assert response.email == "new@example.com"
+    assert response.message == "verification_code_sent"
+    assert response.quota is not None
+    assert response.quota.remaining == 2
+    user_repo.add_user.assert_not_awaited()
+    refresh_store.save.assert_not_awaited()
+    kakao_pending_store.upsert.assert_awaited_once()
+    pending = kakao_pending_store.upsert.await_args.args[0]
+    assert pending.kakao_id == "999888777"
+    assert pending.email == "new@example.com"
+    assert pending.nickname == "newbie"
+    verification_store.issue.assert_awaited_once_with(
+        PURPOSE_KAKAO_SIGNUP, "new@example.com"
+    )
+    email_service.send_verification_code.assert_awaited_once_with(
+        "new@example.com", "123456", PURPOSE_KAKAO_SIGNUP
+    )
 
 
-async def test_complete_kakao_sets_verified_true(
+async def test_complete_kakao_signup_does_not_create_user_yet(
     auth_service: AuthService,
     user_repo: AsyncMock,
+    kakao_pending_store: AsyncMock,
+    verification_store: AsyncMock,
+    daily_quota_store: AsyncMock,
 ):
     user_repo.get_user_by_kakao_id.return_value = None
     user_repo.get_user_by_email.return_value = None
     user_repo.get_user_by_nickname.return_value = None
-
-    def _add_user(user: User) -> User:
-        user.id = uuid6.uuid7()
-        return user
-
-    user_repo.add_user.side_effect = _add_user
+    verification_store.issue.return_value = "111222"
+    daily_quota_store.consume = AsyncMock(
+        return_value=QuotaInfo(
+            limit=3,
+            used=1,
+            remaining=2,
+            reset_at=kst_next_midnight(),
+        )
+    )
 
     await auth_service.complete_kakao_signup(
         KakaoCompleteRequest(
@@ -476,8 +569,11 @@ async def test_complete_kakao_sets_verified_true(
         )
     )
 
-    added_user = user_repo.add_user.await_args.args[0]
-    assert added_user.is_email_verified is True
+    user_repo.add_user.assert_not_awaited()
+    kakao_pending_store.upsert.assert_awaited_once()
+    pending = kakao_pending_store.upsert.await_args.args[0]
+    assert pending.nickname == "kakaoverified"
+    assert pending.email == "verified@example.com"
 
 
 async def test_complete_kakao_signup_restores_existing_user_within_grace(
@@ -704,9 +800,8 @@ async def test_request_password_reset_sends_code_for_password_user(
 
     result = await auth_service.request_password_reset("test@example.com")
 
-    assert result["ok"] is True
-    assert result["message"] == "password_reset_email_sent"
-    assert result["quota"]["remaining"] == 2
+    assert result == {"ok": True, "message": "password_reset_email_sent"}
+    assert "quota" not in result
     daily_quota_store.consume.assert_awaited_once()
     verification_store.issue.assert_awaited_once_with(
         PURPOSE_PASSWORD_RESET, "test@example.com"
@@ -720,6 +815,7 @@ async def test_confirm_password_reset_updates_password(
     auth_service: AuthService,
     user_repo: AsyncMock,
     verification_store: AsyncMock,
+    refresh_store: AsyncMock,
 ):
     user = User(
         id=uuid6.uuid7(),
@@ -747,6 +843,7 @@ async def test_confirm_password_reset_updates_password(
     )
     user_repo.save.assert_awaited_once_with(user)
     assert security.verify_password("newpass12", user.password)
+    refresh_store.revoke_all_for_user.assert_awaited_once_with(user.id)
 
 
 async def test_confirm_password_reset_hides_missing_user(

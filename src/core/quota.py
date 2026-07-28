@@ -80,11 +80,6 @@ class DailyQuotaStore:
             reset_at=kst_next_midnight(),
         )
 
-    async def peek(self, kind: str, subject: str, limit: int) -> QuotaInfo:
-        raw = await self._redis.get(self._key(kind, subject))
-        used = int(raw) if raw is not None else 0
-        return self._snapshot(used, limit)
-
     async def consume(self, kind: str, subject: str, limit: int) -> QuotaInfo:
         key = self._key(kind, subject)
         used = await self._redis.incr(key)

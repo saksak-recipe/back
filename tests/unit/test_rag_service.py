@@ -76,7 +76,7 @@ def _set_personal_scope(
     )
 
 
-async def test_recommend_consumes_rag_quota(
+async def test_recommend_consumes_rag_quota_after_success(
     rag_service: RagService,
     scope_loader: AsyncMock,
     retriever: MagicMock,
@@ -95,20 +95,57 @@ async def test_recommend_consumes_rag_quota(
             )
         ],
     )
-    retriever.search.return_value = []
-    daily_quota_store.consume = AsyncMock(
-        return_value=QuotaInfo(
+    order: list[str] = []
+
+    def search(*args, **kwargs):
+        order.append("search")
+        return []
+
+    retriever.search.side_effect = search
+
+    async def consume(*args, **kwargs):
+        order.append("consume")
+        return QuotaInfo(
             limit=7, used=1, remaining=6, reset_at=kst_next_midnight()
         )
-    )
+
+    daily_quota_store.consume = AsyncMock(side_effect=consume)
 
     result = await rag_service.recommend_recipes()
 
+    assert order == ["search", "consume"]
     daily_quota_store.consume.assert_awaited_once_with(
         KIND_RAG, str(user.id), RAG_DAILY_LIMIT
     )
     assert result.quota is not None
     assert result.quota.remaining == 6
+
+
+async def test_recommend_skips_quota_when_search_fails(
+    rag_service: RagService,
+    scope_loader: AsyncMock,
+    retriever: MagicMock,
+    daily_quota_store: AsyncMock,
+    user: User,
+):
+    _set_personal_scope(
+        scope_loader,
+        user,
+        [
+            Ingredient(
+                id=1,
+                user_id=user.id,
+                ingredient_name="계란",
+                purchase_date=date.today(),
+            )
+        ],
+    )
+    retriever.search.side_effect = RuntimeError("vector store down")
+
+    with pytest.raises(RuntimeError, match="vector store down"):
+        await rag_service.recommend_recipes()
+
+    daily_quota_store.consume.assert_not_called()
 
 
 async def test_recommend_empty_skips_quota(

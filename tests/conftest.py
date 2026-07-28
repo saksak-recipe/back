@@ -1,6 +1,5 @@
 import os
 from collections.abc import AsyncGenerator
-from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -116,15 +115,3 @@ async def test_user(db_session: AsyncSession) -> User:
 async def auth_headers(test_user: User) -> dict[str, str]:
     token = security.create_jwt(test_user.id)
     return {"Authorization": f"Bearer {token}"}
-
-
-@pytest_asyncio.fixture
-async def test_ingredient(db_session: AsyncSession, test_user: User) -> Ingredient:
-    ingredient = Ingredient(
-        user_id=test_user.id,
-        ingredient_name="양파",
-        purchase_date=date.today(),
-    )
-    db_session.add(ingredient)
-    await db_session.flush()
-    return ingredient

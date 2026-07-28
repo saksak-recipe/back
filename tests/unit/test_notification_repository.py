@@ -9,7 +9,7 @@ from domains.notification.repository import NotificationRepository
 @pytest.mark.asyncio
 async def test_create_if_absent_is_idempotent(db_session, test_user):
     repo = NotificationRepository(db_session)
-    key = f"expiry_soon:1"
+    key = "expiry_soon:1"
     first = await repo.create_if_absent(
         Notification(
             user_id=test_user.id,

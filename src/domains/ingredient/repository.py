@@ -55,6 +55,22 @@ class IngredientRepository:
                 detail="식재료 조회 중 DB 오류가 발생했습니다."
             ) from e
 
+    async def find_name_for_user(
+        self, user_id: uuid.UUID, name: str
+    ) -> Ingredient | None:
+        try:
+            stmt = select(Ingredient).where(
+                Ingredient.user_id == user_id,
+                Ingredient.group_id.is_(None),
+                Ingredient.ingredient_name == name,
+            )
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="식재료 조회 중 DB 오류가 발생했습니다."
+            ) from e
+
     async def delete_ingredient(self, ingredient_id: int, user_id: uuid.UUID) -> bool:
         try:
             stmt = delete(Ingredient).where(
@@ -69,7 +85,7 @@ class IngredientRepository:
                 detail="식재료 삭제 중 DB 오류가 발생했습니다."
             ) from e
 
-    async def delete_all_ingredients(self, user_id: uuid.UUID) -> bool:
+    async def delete_all_ingredients(self, user_id: uuid.UUID) -> int:
         try:
             stmt = delete(Ingredient).where(
                 Ingredient.user_id == user_id,
@@ -77,7 +93,7 @@ class IngredientRepository:
             )
             result = await self.session.execute(stmt)
             await self.session.flush()
-            return result.rowcount > 0
+            return result.rowcount
         except SQLAlchemyError as e:
             raise DatabaseException(
                 detail="식재료 일괄 삭제 중 DB 오류가 발생했습니다."

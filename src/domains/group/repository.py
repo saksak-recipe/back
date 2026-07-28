@@ -156,3 +156,31 @@ class GroupRepository:
             raise DatabaseException(
                 detail="그룹 초대 저장 중 DB 오류가 발생했습니다."
             ) from e
+
+    async def cancel_pending_invites_for_invitee(
+        self,
+        invitee_id: uuid.UUID,
+        *,
+        exclude_invite_id: uuid.UUID | None = None,
+        group_id: uuid.UUID | None = None,
+    ) -> int:
+        try:
+            stmt = select(GroupInvite).where(
+                GroupInvite.invitee_id == invitee_id,
+                GroupInvite.status == InviteStatus.pending,
+            )
+            if exclude_invite_id is not None:
+                stmt = stmt.where(GroupInvite.id != exclude_invite_id)
+            if group_id is not None:
+                stmt = stmt.where(GroupInvite.group_id == group_id)
+            result = await self.session.execute(stmt)
+            invites = list(result.scalars().all())
+            for invite in invites:
+                invite.status = InviteStatus.cancelled
+            if invites:
+                await self.session.flush()
+            return len(invites)
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="그룹 초대 취소 중 DB 오류가 발생했습니다."
+            ) from e

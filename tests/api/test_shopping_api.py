@@ -127,8 +127,31 @@ async def test_delete_item_and_delete_all(
         "/api/v1/shopping-items",
         headers=auth_headers,
     )
-    assert empty_delete.status_code == 404
-    assert empty_delete.json()["code"] == ErrorCode.SHOPPING_ITEM_NOT_FOUND
+    assert empty_delete.status_code == 204
+
+
+async def test_to_ingredient_rejects_name_conflict(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={"ingredients": ["대파"]},
+    )
+    added = await client.post(
+        "/api/v1/shopping-items",
+        headers=auth_headers,
+        json={"names": ["대파"]},
+    )
+    item_id = added.json()[0]["id"]
+
+    response = await client.post(
+        f"/api/v1/shopping-items/{item_id}/to-ingredient",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == ErrorCode.INGREDIENT_NAME_CONFLICT
 
 
 async def test_update_nonexistent_item_not_found(

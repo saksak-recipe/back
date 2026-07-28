@@ -37,13 +37,19 @@ async def extract_text(
         "images": [{"format": clova_format, "name": "receipt"}],
     }
 
+    content_type = (
+        "image/jpeg" if clova_format == "jpg" else f"image/{clova_format}"
+    )
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 api_url,
                 headers={"X-OCR-SECRET": secret_key},
                 data={"message": json.dumps(message)},
-                files={"file": ("receipt." + clova_format, image_bytes, f"image/{format}")},
+                files={
+                    "file": ("receipt." + clova_format, image_bytes, content_type)
+                },
             )
     except httpx.HTTPError as exc:
         raise ExternalServiceException(

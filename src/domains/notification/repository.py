@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import uuid6
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -125,6 +125,21 @@ class NotificationRepository:
         try:
             await self.session.delete(notification)
             await self.session.flush()
+        except SQLAlchemyError as e:
+            raise DatabaseException(
+                detail="알림 삭제 중 DB 오류가 발생했습니다."
+            ) from e
+
+    async def delete_by_reference_keys(self, reference_keys: list[str]) -> int:
+        if not reference_keys:
+            return 0
+        try:
+            stmt = delete(Notification).where(
+                Notification.reference_key.in_(reference_keys)
+            )
+            result = await self.session.execute(stmt)
+            await self.session.flush()
+            return int(result.rowcount or 0)
         except SQLAlchemyError as e:
             raise DatabaseException(
                 detail="알림 삭제 중 DB 오류가 발생했습니다."

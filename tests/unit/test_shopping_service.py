@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock
 import pytest
 import uuid6
 
-from core.exception.exceptions import ShoppingItemNotFoundException
+from core.exception.codes import ErrorCode
+from core.exception.exceptions import ConflictException, ShoppingItemNotFoundException
 from domains.ingredient.model import Ingredient
 from domains.ingredient.repository import IngredientRepository
 from domains.shopping.model import ShoppingItem
@@ -21,7 +22,9 @@ def shopping_repo() -> AsyncMock:
 
 @pytest.fixture
 def ingredient_repo() -> AsyncMock:
-    return AsyncMock()
+    repo = AsyncMock()
+    repo.find_name_for_user.return_value = None
+    return repo
 
 
 @pytest.fixture
@@ -208,14 +211,15 @@ async def test_delete_item_not_found_raises(
         await shopping_service.delete_item(999)
 
 
-async def test_delete_all_empty_raises(
+async def test_delete_all_succeeds_when_empty(
     shopping_service: ShoppingService,
     shopping_repo: AsyncMock,
 ):
-    shopping_repo.delete_all.return_value = False
+    shopping_repo.delete_all.return_value = 0
 
-    with pytest.raises(ShoppingItemNotFoundException):
-        await shopping_service.delete_all()
+    await shopping_service.delete_all()
+
+    shopping_repo.delete_all.assert_awaited_once()
 
 
 async def test_to_ingredient_creates_ingredient_and_deletes_shopping(
@@ -231,6 +235,7 @@ async def test_to_ingredient_creates_ingredient_and_deletes_shopping(
         is_checked=False,
         created_at=datetime.now(timezone.utc),
     )
+    ingredient_repo.find_name_for_user.return_value = None
     ingredient_repo.add_ingredient.return_value = [
         Ingredient(
             id=10,
@@ -252,6 +257,34 @@ async def test_to_ingredient_creates_ingredient_and_deletes_shopping(
     shopping_repo.delete_item.assert_awaited_once_with(1, user.id)
     assert result.ingredient_name == "대파"
     assert result.status == "unknown"
+
+
+async def test_to_ingredient_rejects_name_conflict(
+    shopping_service: ShoppingService,
+    shopping_repo: AsyncMock,
+    ingredient_repo: AsyncMock,
+    user: User,
+):
+    shopping_repo.get_by_id.return_value = ShoppingItem(
+        id=1,
+        user_id=user.id,
+        name="대파",
+        is_checked=False,
+        created_at=datetime.now(timezone.utc),
+    )
+    ingredient_repo.find_name_for_user.return_value = Ingredient(
+        id=10,
+        user_id=user.id,
+        ingredient_name="대파",
+        purchase_date=date.today(),
+    )
+
+    with pytest.raises(ConflictException) as exc:
+        await shopping_service.to_ingredient(1)
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    ingredient_repo.add_ingredient.assert_not_awaited()
+    shopping_repo.delete_item.assert_not_awaited()
 
 
 async def test_to_ingredient_not_found_raises(

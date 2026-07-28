@@ -79,6 +79,8 @@ async def test_save_mangae_recipe(
         recipe_name="김치볶음밥",
         source_url="https://example.com/1",
         main_image_url=None,
+        recipe_difficulty="초급",
+        time="30분",
         ingredients=[RecipeIngredient(name="김치", amount="1컵")],
         steps=[RecipeStep(order=1, description="볶는다")],
         tips=[],
@@ -89,6 +91,8 @@ async def test_save_mangae_recipe(
         source="mangae",
         source_id="김치볶음밥|요리왕",
         recipe_name="김치볶음밥",
+        recipe_difficulty="초급",
+        time="30분",
     )
 
     result = await service.save(
@@ -96,7 +100,12 @@ async def test_save_mangae_recipe(
     )
 
     assert result.source == "mangae"
+    assert result.recipe_difficulty == "초급"
+    assert result.time == "30분"
     detail_service.get_detail.assert_awaited_once_with("김치볶음밥", "요리왕")
+    saved_entity = repo.add.await_args.args[0]
+    assert saved_entity.recipe_difficulty == "초급"
+    assert saved_entity.time == "30분"
 
 
 async def test_save_duplicate_raises_conflict(

@@ -1,7 +1,13 @@
 from fastapi import APIRouter, status, Depends
 
 from api.deps import get_auth_service
-from core.exception.exceptions import TooManyRequestsException
+from core.exception.exceptions import (
+    ConflictException,
+    InvalidTokenException,
+    TooManyRequestsException,
+    UnAuthorizedException,
+    UserNotFoundException,
+)
 from core.exception.openapi import create_error_response
 from domains.auth.schemas import (
     EmailResendRequest,
@@ -10,18 +16,26 @@ from domains.auth.schemas import (
     KakaoAuthResponse,
     KakaoCompleteRequest,
     KakaoLoginRequest,
+    KakaoNeedsEmailVerificationResponse,
     KakaoNeedsProfileResponse,
+    LogInRequest,
+    LogInResponse,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     PasswordResetRequestResponse,
+    RefreshRequest,
 )
 from domains.auth.service import AuthService
-from domains.user.schemas import LogInRequest, LogInResponse, RefreshRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", status_code=status.HTTP_200_OK, response_model=LogInResponse)
+@router.post(
+    "/login",
+    status_code=status.HTTP_200_OK,
+    response_model=LogInResponse,
+    responses=create_error_response(UnAuthorizedException),
+)
 async def log_in(
     request: LogInRequest,
     auth_service: AuthService = Depends(get_auth_service),
@@ -30,7 +44,10 @@ async def log_in(
 
 
 @router.post(
-    "/email/verify", status_code=status.HTTP_200_OK, response_model=LogInResponse
+    "/email/verify",
+    status_code=status.HTTP_200_OK,
+    response_model=LogInResponse,
+    responses=create_error_response(UserNotFoundException, UnAuthorizedException),
 )
 async def verify_email(
     request: EmailVerifyRequest,
@@ -44,7 +61,7 @@ async def verify_email(
     status_code=status.HTTP_200_OK,
     response_model=EmailResendResponse,
     response_model_exclude_none=True,
-    responses=create_error_response(TooManyRequestsException),
+    responses=create_error_response(TooManyRequestsException, UserNotFoundException),
 )
 async def resend_verification(
     request: EmailResendRequest,
@@ -58,7 +75,6 @@ async def resend_verification(
     "/password/reset/request",
     status_code=status.HTTP_200_OK,
     response_model=PasswordResetRequestResponse,
-    response_model_exclude_none=True,
     responses=create_error_response(TooManyRequestsException),
 )
 async def request_password_reset(
@@ -69,7 +85,11 @@ async def request_password_reset(
     return PasswordResetRequestResponse(**result)
 
 
-@router.post("/password/reset/confirm", status_code=status.HTTP_200_OK)
+@router.post(
+    "/password/reset/confirm",
+    status_code=status.HTTP_200_OK,
+    responses=create_error_response(UnAuthorizedException),
+)
 async def confirm_password_reset(
     request: PasswordResetConfirmRequest,
     auth_service: AuthService = Depends(get_auth_service),
@@ -81,6 +101,7 @@ async def confirm_password_reset(
     "/kakao",
     status_code=status.HTTP_200_OK,
     response_model=KakaoAuthResponse | KakaoNeedsProfileResponse,
+    responses=create_error_response(UnAuthorizedException),
 )
 async def kakao_login(
     request: KakaoLoginRequest,
@@ -92,16 +113,24 @@ async def kakao_login(
 @router.post(
     "/kakao/complete",
     status_code=status.HTTP_200_OK,
-    response_model=KakaoAuthResponse,
+    response_model=KakaoAuthResponse | KakaoNeedsEmailVerificationResponse,
+    responses=create_error_response(
+        ConflictException, TooManyRequestsException, InvalidTokenException
+    ),
 )
 async def kakao_complete(
     request: KakaoCompleteRequest,
     auth_service: AuthService = Depends(get_auth_service),
-) -> KakaoAuthResponse:
+) -> KakaoAuthResponse | KakaoNeedsEmailVerificationResponse:
     return await auth_service.complete_kakao_signup(request)
 
 
-@router.post("/refresh", status_code=status.HTTP_200_OK, response_model=LogInResponse)
+@router.post(
+    "/refresh",
+    status_code=status.HTTP_200_OK,
+    response_model=LogInResponse,
+    responses=create_error_response(InvalidTokenException),
+)
 async def refresh(
     request: RefreshRequest,
     auth_service: AuthService = Depends(get_auth_service),

@@ -132,6 +132,7 @@ async def kick_member(
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
+        ConflictException,
         NotFoundException,
         UserNotFoundException,
     ),
@@ -244,9 +245,7 @@ async def add_group_ingredients(
 @router.delete(
     "/me/ingredients",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=create_error_response(
-        UnAuthorizedException, IngredientNotFoundException, NotFoundException
-    ),
+    responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def delete_all_group_ingredients(
     service: GroupService = Depends(get_group_service),
@@ -261,6 +260,7 @@ async def delete_all_group_ingredients(
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
+        ConflictException,
         IngredientNotFoundException,
         NotFoundException,
     ),
@@ -317,9 +317,7 @@ async def add_group_shopping_items(
 @router.delete(
     "/me/shopping-items",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=create_error_response(
-        UnAuthorizedException, ShoppingItemNotFoundException, NotFoundException
-    ),
+    responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def delete_all_group_shopping_items(
     service: GroupService = Depends(get_group_service),

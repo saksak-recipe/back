@@ -44,9 +44,6 @@ class RagService:
                 ingredients_used=[], recipes=[], quota=None
             )
 
-        quota = await self.daily_quota_store.consume(
-            KIND_RAG, str(self.user.id), RAG_DAILY_LIMIT
-        )
         urgent = urgent_names(ingredients)
         query = build_ingredient_query(names, urgent_names=urgent)
         docs_with_scores = await asyncio.to_thread(
@@ -75,6 +72,9 @@ class RagService:
         else:
             recipes = self._sample_top_k(candidates)
 
+        quota = await self.daily_quota_store.consume(
+            KIND_RAG, str(self.user.id), RAG_DAILY_LIMIT
+        )
         return RecipeRecommendationResponse(
             ingredients_used=names,
             recipes=recipes,

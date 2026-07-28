@@ -7,11 +7,16 @@ from email.message import EmailMessage
 from loguru import logger
 
 from core.exception.exceptions import ExternalServiceException
-from domains.auth.verification_store import PURPOSE_PASSWORD_RESET, PURPOSE_SIGNUP
+from domains.auth.verification_store import (
+    PURPOSE_KAKAO_SIGNUP,
+    PURPOSE_PASSWORD_RESET,
+    PURPOSE_SIGNUP,
+)
 
 _SUBJECT_BY_PURPOSE = {
     PURPOSE_SIGNUP: "회원가입 인증 코드",
     PURPOSE_PASSWORD_RESET: "비밀번호 재설정 인증 코드",
+    PURPOSE_KAKAO_SIGNUP: "카카오 가입 이메일 인증 코드",
 }
 
 

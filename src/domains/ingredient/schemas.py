@@ -10,7 +10,7 @@ class AddIngredientRequest(BaseModel):
     # 유통기한 안넣을 시 Default -> Today
     purchase_date: date = Field(default_factory=date.today)
     expiration_date: date | None = None
-    ingredients: list[str]
+    ingredients: list[str] = Field(min_length=1)
 
     @field_validator("purchase_date", mode="before")
     @classmethod
@@ -18,6 +18,19 @@ class AddIngredientRequest(BaseModel):
         if v is None:
             return date.today()
         return v
+
+    @field_validator("ingredients")
+    @classmethod
+    def validate_ingredients(cls, names: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for raw in names:
+            name = raw.strip()
+            if not name:
+                raise ValueError("식재료 이름은 비어 있을 수 없습니다.")
+            if len(name) > 45:
+                raise ValueError("식재료 이름은 45자 이하여야 합니다.")
+            cleaned.append(name)
+        return cleaned
 
 
 class UpdateIngredientRequest(BaseModel):

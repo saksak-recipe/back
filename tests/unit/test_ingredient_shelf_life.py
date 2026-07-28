@@ -47,6 +47,7 @@ async def test_autofill_when_master_hit_and_expiration_none(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     result = await service.add_ingredients(
@@ -73,6 +74,7 @@ async def test_missing_log_when_master_miss_and_expiration_none(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     result = await service.add_ingredients(
@@ -101,6 +103,7 @@ async def test_deviation_log_when_user_days_differ(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     result = await service.add_ingredients(
@@ -132,6 +135,7 @@ async def test_no_log_when_user_days_match_master(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     await service.add_ingredients(
@@ -159,6 +163,7 @@ async def test_missing_with_user_input_when_master_miss(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     result = await service.add_ingredients(
@@ -189,6 +194,7 @@ async def test_exact_name_match_only(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     result = await service.add_ingredients(
@@ -204,6 +210,35 @@ async def test_exact_name_match_only(
     assert logs[0].ingredient_name == "흰우유"
 
 
+async def test_synonym_name_matches_master(
+    db_session,
+    test_user: User,
+    shelf_life_service: IngredientShelfLifeService,
+):
+    await _add_master(db_session, "달걀", 14)
+    purchase = date.today()
+    service = IngredientService(
+        user=test_user,
+        ingredient_repo=IngredientRepository(db_session),
+        shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
+    )
+
+    result = await service.add_ingredients(
+        AddIngredientRequest(
+            ingredients=["계란"],
+            purchase_date=purchase,
+            expiration_date=None,
+        )
+    )
+
+    assert result[0].expiration_date == purchase + timedelta(days=14)
+    logs = (
+        await db_session.execute(select(IngredientShelfLifeLog))
+    ).scalars().all()
+    assert logs == []
+
+
 async def test_batch_autofill_uses_per_name_shelf_life(
     db_session,
     test_user: User,
@@ -216,6 +251,7 @@ async def test_batch_autofill_uses_per_name_shelf_life(
         user=test_user,
         ingredient_repo=IngredientRepository(db_session),
         shelf_life_service=shelf_life_service,
+        notification_service=AsyncMock(),
     )
 
     result = await service.add_ingredients(

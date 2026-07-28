@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import uuid6
 from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func
@@ -10,6 +10,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from core.database import Base
+
+if TYPE_CHECKING:
+    from domains.user.model import User
 
 
 class SavedRecipe(Base):
@@ -39,7 +42,7 @@ class SavedRecipe(Base):
         nullable=False,
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="saved_recipes")
+    user: Mapped[User] = relationship("User", back_populates="saved_recipes")
 
     __table_args__ = (
         UniqueConstraint(

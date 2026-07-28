@@ -20,6 +20,7 @@ from core.quota import (
 )
 from domains.auth import kakao_client
 from domains.auth.email_service import EmailService
+from domains.auth.kakao_pending_store import KakaoPendingStore, PendingKakaoSignup
 from domains.auth.login_lock_store import LoginLockStore
 from domains.auth.refresh_store import RefreshTokenStore
 from domains.auth.schemas import (
@@ -27,24 +28,25 @@ from domains.auth.schemas import (
     EmailVerifyRequest,
     KakaoAuthResponse,
     KakaoCompleteRequest,
+    KakaoNeedsEmailVerificationResponse,
     KakaoNeedsProfileResponse,
+    LogInRequest,
+    LogInResponse,
     PasswordResetConfirmRequest,
+    SignUpRequest,
 )
 from domains.auth.signup_pending_store import PendingSignup, SignupPendingStore
 from domains.auth.verification_store import (
     CODE_TTL_SECONDS,
+    PURPOSE_KAKAO_SIGNUP,
     PURPOSE_PASSWORD_RESET,
     PURPOSE_SIGNUP,
     VerificationCodeStore,
 )
 from domains.user.model import User
 from domains.user.repository import UserRepository
-from domains.user.schemas import (
-    LogInRequest,
-    LogInResponse,
-    SignUpRequest,
-    UserInfoResponse,
-)
+from domains.user.schemas import UserInfoResponse
+
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,7 @@ class AuthService:
         verification_store: VerificationCodeStore,
         email_service: EmailService,
         signup_pending_store: SignupPendingStore,
+        kakao_pending_store: KakaoPendingStore,
         login_lock_store: LoginLockStore,
         daily_quota_store: DailyQuotaStore,
     ) -> None:
@@ -69,6 +72,7 @@ class AuthService:
         self.verification_store = verification_store
         self.email_service = email_service
         self.signup_pending_store = signup_pending_store
+        self.kakao_pending_store = kakao_pending_store
         self.login_lock_store = login_lock_store
         self.daily_quota_store = daily_quota_store
 
@@ -118,6 +122,8 @@ class AuthService:
                 code=ErrorCode.NICKNAME_CONFLICT,
                 detail="이미 사용 중인 닉네임 입니다.(대소문자 구별)",
             )
+        if existing_nickname and not existing_nickname.is_email_verified:
+            await self.user_repo.delete_user(existing_nickname)
 
         pending = PendingSignup(
             email=email,
@@ -147,6 +153,25 @@ class AuthService:
                 detail="이미 인증된 이메일입니다.",
             )
 
+        kakao_pending = await self.kakao_pending_store.get_by_email(email)
+        if kakao_pending is not None:
+            await self.verification_store.verify(
+                PURPOSE_KAKAO_SIGNUP, email, request.code
+            )
+            pending = await self.kakao_pending_store.pop_by_email(email)
+            if pending is None:
+                raise UserNotFoundException(detail="회원가입 정보가 만료되었습니다.")
+            user = User(
+                email=pending.email,
+                password=None,
+                kakao_id=pending.kakao_id,
+                nickname=pending.nickname,
+                is_email_verified=True,
+            )
+            user = await self.user_repo.add_user(user)
+            tokens = await self.issue_tokens(user)
+            return self._to_auth_response(user, tokens)
+
         await self.verification_store.verify(PURPOSE_SIGNUP, email, request.code)
 
         pending = await self.signup_pending_store.pop(email)
@@ -166,7 +191,8 @@ class AuthService:
     async def resend_verification(self, request: EmailResendRequest) -> dict:
         email = str(request.email)
         user = await self.user_repo.get_user_by_email(email)
-        pending = await self.signup_pending_store.get(email)
+        signup_pending = await self.signup_pending_store.get(email)
+        kakao_pending = await self.kakao_pending_store.get_by_email(email)
 
         if user and user.is_email_verified:
             raise BadRequestException(
@@ -174,15 +200,16 @@ class AuthService:
                 detail="이미 인증된 이메일입니다.",
             )
 
-        if not pending:
+        if kakao_pending:
+            purpose = PURPOSE_KAKAO_SIGNUP
+        elif signup_pending:
+            purpose = PURPOSE_SIGNUP
+        else:
             raise UserNotFoundException()
 
-        # Cooldown check before quota: VERIFICATION_COOLDOWN must not burn daily limit.
-        code = await self.verification_store.resend(PURPOSE_SIGNUP, email)
+        code = await self.verification_store.resend(purpose, email)
         quota = await self._consume_email_send(email)
-        await self.email_service.send_verification_code(
-            email, code, PURPOSE_SIGNUP
-        )
+        await self.email_service.send_verification_code(email, code, purpose)
         return {
             "ok": True,
             "expires_in_seconds": CODE_TTL_SECONDS,
@@ -194,15 +221,12 @@ class AuthService:
         user = await self.user_repo.get_user_by_email(email)
         if not user or user.password is None:
             return response
-        quota = await self._consume_email_send(email)
+        await self._consume_email_send(email)
         code = await self.verification_store.issue(PURPOSE_PASSWORD_RESET, email)
         await self.email_service.send_verification_code(
             email, code, PURPOSE_PASSWORD_RESET
         )
-        return {
-            **response,
-            "quota": quota.model_dump(mode="json"),
-        }
+        return response
 
     async def confirm_password_reset(
         self, request: PasswordResetConfirmRequest
@@ -220,6 +244,7 @@ class AuthService:
         user.password = security.hash_password(request.password)
         await self.user_repo.save(user)
         await self.login_lock_store.clear(email)
+        await self.refresh_store.revoke_all_for_user(user.id)
         return {"ok": True}
 
     async def login(self, request: LogInRequest) -> LogInResponse:
@@ -227,7 +252,8 @@ class AuthService:
         user = await self.user_repo.get_user_by_email(email)
         if not user:
             pending = await self.signup_pending_store.get(email)
-            if pending:
+            kakao_pending = await self.kakao_pending_store.get_by_email(email)
+            if pending or kakao_pending:
                 raise UnAuthorizedException(
                     code=ErrorCode.EMAIL_NOT_VERIFIED,
                     detail="이메일 인증이 필요합니다.",
@@ -274,7 +300,7 @@ class AuthService:
 
     async def complete_kakao_signup(
         self, request: KakaoCompleteRequest
-    ) -> KakaoAuthResponse:
+    ) -> KakaoAuthResponse | KakaoNeedsEmailVerificationResponse:
         kakao_id = security.decode_kakao_signup_token(request.signup_token)
 
         existing = await self.user_repo.get_user_by_kakao_id(kakao_id)
@@ -283,27 +309,40 @@ class AuthService:
             tokens = await self.issue_tokens(existing)
             return self._to_kakao_auth_response(existing, tokens)
 
-        if await self.user_repo.get_user_by_email(str(request.email)):
+        email = str(request.email)
+        if await self.user_repo.get_user_by_email(email):
             raise ConflictException(
                 code=ErrorCode.EMAIL_CONFLICT,
                 detail="이미 사용 중인 이메일 입니다.",
             )
-        if await self.user_repo.get_user_by_nickname(request.nickname):
+        existing_nickname = await self.user_repo.get_user_by_nickname(
+            request.nickname
+        )
+        if existing_nickname and existing_nickname.is_email_verified:
             raise ConflictException(
                 code=ErrorCode.NICKNAME_CONFLICT,
                 detail="이미 사용 중인 닉네임 입니다.(대소문자 구별)",
             )
+        if existing_nickname and not existing_nickname.is_email_verified:
+            await self.user_repo.delete_user(existing_nickname)
 
-        user = User(
-            email=str(request.email),
-            password=None,
+        pending = PendingKakaoSignup(
             kakao_id=kakao_id,
+            email=email,
             nickname=request.nickname,
-            is_email_verified=True,
         )
-        user = await self.user_repo.add_user(user)
-        tokens = await self.issue_tokens(user)
-        return self._to_kakao_auth_response(user, tokens)
+        await self.kakao_pending_store.upsert(pending)
+
+        quota = await self._consume_email_send(email)
+        code = await self.verification_store.issue(PURPOSE_KAKAO_SIGNUP, email)
+        await self.email_service.send_verification_code(
+            email, code, PURPOSE_KAKAO_SIGNUP
+        )
+        return KakaoNeedsEmailVerificationResponse(
+            email=email,
+            expires_in_seconds=CODE_TTL_SECONDS,
+            quota=quota,
+        )
 
     async def refresh(self, refresh_token: str) -> LogInResponse:
         user_id = await self.refresh_store.pop_user_id(refresh_token)
@@ -321,7 +360,10 @@ class AuthService:
         await self.refresh_store.delete(refresh_token)
 
     async def get_user_by_token(self, access_token: str) -> User:
-        user_id = UUID(security.decode_jwt(access_token))
+        try:
+            user_id = UUID(security.decode_jwt(access_token))
+        except (ValueError, TypeError) as exc:
+            raise InvalidTokenException(detail="유효하지 않은 토큰입니다.") from exc
         user = await self.user_repo.get_user_by_id(user_id)
         if not user:
             raise UnAuthorizedException(detail="사용자를 찾을 수 없습니다.")

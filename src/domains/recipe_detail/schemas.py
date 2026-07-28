@@ -17,6 +17,8 @@ class RecipeDetailResponse(BaseModel):
     recipe_name: str
     source_url: str
     main_image_url: str | None = None
+    recipe_difficulty: str | None = None
+    time: str | None = None
     ingredients: list[RecipeIngredient] = Field(default_factory=list)
     steps: list[RecipeStep] = Field(default_factory=list)
     tips: list[str] = Field(default_factory=list)

@@ -140,7 +140,7 @@ class ShoppingRepository:
                 detail="장보기 항목 삭제 중 DB 오류가 발생했습니다."
             ) from e
 
-    async def delete_all(self, user_id: uuid.UUID) -> bool:
+    async def delete_all(self, user_id: uuid.UUID) -> int:
         try:
             stmt = delete(ShoppingItem).where(
                 ShoppingItem.user_id == user_id,
@@ -148,7 +148,7 @@ class ShoppingRepository:
             )
             result = await self.session.execute(stmt)
             await self.session.flush()
-            return result.rowcount > 0
+            return result.rowcount
         except SQLAlchemyError as e:
             raise DatabaseException(
                 detail="장보기 항목 일괄 삭제 중 DB 오류가 발생했습니다."

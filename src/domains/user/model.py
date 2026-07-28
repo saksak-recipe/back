@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import uuid6  # 추후 인덱싱 고려했을 때, uuid와 다르게 uuid6 라이브러리를 사용했을 경우, 생성된 시간 정보가 앞에 들어감. 물론 여기서 uuid6를 배정하진 않음
 
@@ -7,6 +10,12 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
+
+if TYPE_CHECKING:
+    from domains.ingredient.model import Ingredient
+    from domains.notification.model import Notification
+    from domains.saved_recipe.model import SavedRecipe
+    from domains.shopping.model import ShoppingItem
 
 class User(Base):
     __tablename__ = "users"
@@ -28,22 +37,22 @@ class User(Base):
         DateTime(timezone=True), nullable=True, default=None
     )
 
-    ingredients: Mapped[list["Ingredient"]] = relationship(
+    ingredients: Mapped[list[Ingredient]] = relationship(
         "Ingredient",
         back_populates="user",
         cascade="all, delete-orphan"
     )
-    saved_recipes: Mapped[list["SavedRecipe"]] = relationship(
+    saved_recipes: Mapped[list[SavedRecipe]] = relationship(
         "SavedRecipe",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    shopping_items: Mapped[list["ShoppingItem"]] = relationship(
+    shopping_items: Mapped[list[ShoppingItem]] = relationship(
         "ShoppingItem",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    notifications: Mapped[list["Notification"]] = relationship(
+    notifications: Mapped[list[Notification]] = relationship(
         "Notification",
         back_populates="user",
         cascade="all, delete-orphan",

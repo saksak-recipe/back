@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
 
 from core import security
 from core.config import settings
@@ -8,13 +7,11 @@ from core.exception.exceptions import (
     BadRequestException,
     ConflictException,
     UnAuthorizedException,
-    UserNotFoundException,
 )
-
+from domains.auth.refresh_store import RefreshTokenStore
 from domains.user.model import User
 from domains.user.repository import UserRepository
 from domains.user.schemas import (
-    SignUpRequest,
     UpdateMeRequest,
     UpdatePasswordRequest,
     UserInfoResponse,
@@ -22,43 +19,13 @@ from domains.user.schemas import (
 
 
 class UserService:
-    def __init__(self, user_repo: UserRepository):
+    def __init__(
+        self,
+        user_repo: UserRepository,
+        refresh_store: RefreshTokenStore | None = None,
+    ):
         self.user_repo = user_repo
-
-    async def sign_up(self, request: SignUpRequest) -> User:
-        if await self.user_repo.get_user_by_email(str(request.email)):
-            raise ConflictException(
-                code=ErrorCode.EMAIL_CONFLICT,
-                detail="이미 사용 중인 이메일 입니다.",
-            )
-        if await self.user_repo.get_user_by_nickname(request.nickname):
-            raise ConflictException(
-                code=ErrorCode.NICKNAME_CONFLICT,
-                detail="이미 사용 중인 닉네임 입니다.(대소문자 구별)",
-            )
-
-        if request.password != request.checked_password:
-            raise BadRequestException(
-                code=ErrorCode.PASSWORD_MISMATCH,
-                detail="비밀번호와 비밀번호 확인이 일치하지 않습니다.",
-            )
-
-        hashed_password = security.hash_password(request.password)
-
-        user = User(
-            email=str(request.email),
-            password=hashed_password,
-            nickname=request.nickname,
-            is_email_verified=False,
-        )
-
-        return await self.user_repo.add_user(user)
-
-    async def get_user_info(self, user_id: UUID) -> UserInfoResponse:
-        user = await self.user_repo.get_user_by_id(user_id)
-        if not user:
-            raise UserNotFoundException()
-        return UserInfoResponse.from_user(user)
+        self.refresh_store = refresh_store
 
     async def update_me(
         self, user: User, request: UpdateMeRequest
@@ -91,11 +58,15 @@ class UserService:
 
         user.password = security.hash_password(request.new_password)
         await self.user_repo.save(user)
+        if self.refresh_store is not None:
+            await self.refresh_store.revoke_all_for_user(user.id)
         return UserInfoResponse.from_user(user)
 
     async def withdraw(self, user: User) -> None:
         user.deleted_at = datetime.now(timezone.utc)
         await self.user_repo.save(user)
+        if self.refresh_store is not None:
+            await self.refresh_store.revoke_all_for_user(user.id)
 
     async def purge_expired_withdrawn_users(
         self, now: datetime | None = None

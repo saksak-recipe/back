@@ -42,6 +42,32 @@ async def test_extract_text_joins_infer_text():
     assert call_kwargs["headers"]["X-OCR-SECRET"] == "secret"
     message = call_kwargs["data"]["message"]
     assert '"format": "jpg"' in message  # jpeg → jpg
+    file_tuple = call_kwargs["files"]["file"]
+    assert file_tuple[2] == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_extract_text_jpg_format_uses_image_jpeg_mime():
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"images": [{"fields": [{"inferText": "계란"}]}]}
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("domains.ocr.naver_client.httpx.AsyncClient", return_value=mock_client):
+        await extract_text(
+            b"fake-image",
+            format="jpg",
+            api_url="https://ocr.test/invoke",
+            secret_key="secret",
+        )
+
+    file_tuple = mock_client.post.await_args.kwargs["files"]["file"]
+    assert file_tuple[2] == "image/jpeg"
+    assert file_tuple[2] != "image/jpg"
 
 
 @pytest.mark.asyncio

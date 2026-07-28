@@ -272,7 +272,7 @@ async def test_delete_all_ingredients_clears_all(
     assert list_response.json() == []
 
 
-async def test_delete_all_ingredients_returns_not_found_when_empty(
+async def test_delete_all_ingredients_succeeds_when_empty(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
     response = await client.delete(
@@ -280,8 +280,23 @@ async def test_delete_all_ingredients_returns_not_found_when_empty(
         headers=auth_headers,
     )
 
-    assert response.status_code == 404
-    assert response.json()["code"] == ErrorCode.INGREDIENT_NOT_FOUND
-    assert response.json()["detail"] == (
-        "삭제할 식재료가 존재하지 않거나 이미 비어있는 냉장고 입니다."
+    assert response.status_code == 204
+
+
+async def test_add_ingredients_rejects_name_conflict(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    first = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={"ingredients": ["양파"]},
     )
+    assert first.status_code == 201
+
+    conflict = await client.post(
+        "/api/v1/ingredients",
+        headers=auth_headers,
+        json={"ingredients": ["양파"]},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == ErrorCode.INGREDIENT_NAME_CONFLICT

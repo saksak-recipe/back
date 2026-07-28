@@ -1,14 +1,11 @@
 import pytest
 import fakeredis.aioredis
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from core.exception.exceptions import TooManyRequestsException
 from core.quota import (
     DailyQuotaStore,
     EMAIL_SEND_DAILY_LIMIT,
     KIND_EMAIL_SEND,
-    kst_next_midnight,
 )
 
 
@@ -36,9 +33,9 @@ async def test_consume_over_limit_raises_and_does_not_keep_extra(
     with pytest.raises(TooManyRequestsException) as ei:
         await store.consume(KIND_EMAIL_SEND, "a@example.com", 3)
     assert ei.value.status_code == 429
-    peek = await store.peek(KIND_EMAIL_SEND, "a@example.com", 3)
-    assert peek.used == 3
-    assert peek.remaining == 0
+    key = store._key(KIND_EMAIL_SEND, "a@example.com")
+    used = int(await store._redis.get(key))
+    assert used == 3
 
 
 async def test_subjects_are_independent(store: DailyQuotaStore):

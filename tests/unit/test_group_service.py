@@ -24,27 +24,50 @@ from domains.group.service import GroupService
 from domains.ingredient.model import Ingredient
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
 from domains.ingredient.repository import IngredientRepository
+from domains.ingredient.service import IngredientService
 from domains.ingredient_shelf_life.repository import IngredientShelfLifeRepository
 from domains.ingredient_shelf_life.service import IngredientShelfLifeService
 from domains.notification.repository import NotificationRepository
+from domains.notification.service import NotificationService
 from domains.shopping.model import ShoppingItem
 from domains.shopping.schemas import AddShoppingItemsRequest, UpdateShoppingItemRequest
 from domains.shopping.repository import ShoppingRepository
+from domains.shopping.service import ShoppingService
 from domains.user.model import User
 from domains.user.repository import UserRepository
 
 
 def _service(user: User, db_session) -> GroupService:
+    ingredient_repo = IngredientRepository(db_session)
+    shopping_repo = ShoppingRepository(db_session)
+    shelf_life_service = IngredientShelfLifeService(
+        repo=IngredientShelfLifeRepository(db_session)
+    )
+    notification_service = NotificationService(
+        user=user,
+        notification_repo=NotificationRepository(db_session),
+        ingredient_repo=ingredient_repo,
+        group_repo=GroupRepository(db_session),
+    )
     return GroupService(
         user=user,
         group_repo=GroupRepository(db_session),
         user_repo=UserRepository(db_session),
-        ingredient_repo=IngredientRepository(db_session),
-        shopping_repo=ShoppingRepository(db_session),
-        notification_repo=NotificationRepository(db_session),
-        shelf_life_service=IngredientShelfLifeService(
-            repo=IngredientShelfLifeRepository(db_session)
+        ingredient_service=IngredientService(
+            user=user,
+            ingredient_repo=ingredient_repo,
+            shelf_life_service=shelf_life_service,
+            notification_service=notification_service,
         ),
+        shopping_service=ShoppingService(
+            user=user,
+            shopping_repo=shopping_repo,
+            ingredient_repo=ingredient_repo,
+            shelf_life_service=shelf_life_service,
+        ),
+        notification_service=notification_service,
+        ingredient_repo=ingredient_repo,
+        shopping_repo=shopping_repo,
     )
 
 
@@ -172,7 +195,7 @@ async def test_kick_rejects_owner_self_and_non_member_targets(db_session, test_u
     with pytest.raises(NotFoundException) as exc:
         await owner_service.kick(uuid.uuid4())
 
-    assert exc.value.code == ErrorCode.GROUP_NOT_FOUND
+    assert exc.value.code == ErrorCode.MEMBER_NOT_FOUND
 
 
 @pytest.mark.asyncio
@@ -223,6 +246,23 @@ async def test_invite_rejects_self_and_unknown_nickname(db_session, test_user):
 
 
 @pytest.mark.asyncio
+async def test_invite_rejects_when_invitee_already_member(db_session, test_user):
+    owner_service = _service(test_user, db_session)
+    group = await owner_service.create(CreateGroupRequest(name="우리집"))
+    member = await _add_user(db_session, "member@example.com", "member")
+    await GroupRepository(db_session).add_member(
+        GroupMember(group_id=group.id, user_id=member.id, role=GroupRole.member)
+    )
+
+    with pytest.raises(ConflictException) as exc:
+        await owner_service.invite_by_nickname(
+            InviteByNicknameRequest(nickname=member.nickname)
+        )
+
+    assert exc.value.code == ErrorCode.ALREADY_IN_GROUP
+
+
+@pytest.mark.asyncio
 async def test_invitee_can_accept_pending_invite(db_session, test_user):
     owner_service = _service(test_user, db_session)
     group = await owner_service.create(CreateGroupRequest(name="우리집"))
@@ -240,6 +280,72 @@ async def test_invitee_can_accept_pending_invite(db_session, test_user):
     assert membership.role == GroupRole.member
     assert stored_invite is not None
     assert stored_invite.status == InviteStatus.accepted
+
+
+@pytest.mark.asyncio
+async def test_accept_invite_cancels_other_pending_invites(db_session, test_user):
+    owner_a = test_user
+    owner_b = await _add_user(db_session, "ownerb@example.com", "ownerb")
+    invitee = await _add_user(db_session, "invitee@example.com", "invitee")
+    invite_a = await _service(owner_a, db_session).create(
+        CreateGroupRequest(name="그룹A")
+    )
+    await _service(owner_b, db_session).create(CreateGroupRequest(name="그룹B"))
+    accepted = await _service(owner_a, db_session).invite_by_nickname(
+        InviteByNicknameRequest(nickname=invitee.nickname)
+    )
+    other = await _service(owner_b, db_session).invite_by_nickname(
+        InviteByNicknameRequest(nickname=invitee.nickname)
+    )
+
+    await _service(invitee, db_session).accept_invite(accepted.id)
+
+    repo = GroupRepository(db_session)
+    assert (await repo.get_invite(accepted.id)).status == InviteStatus.accepted
+    assert (await repo.get_invite(other.id)).status == InviteStatus.cancelled
+    assert (await repo.get_membership(invitee.id)).group_id == invite_a.id
+
+
+@pytest.mark.asyncio
+async def test_join_by_code_cancels_pending_invites(db_session, test_user):
+    owner_a = test_user
+    owner_b = await _add_user(db_session, "ownerb@example.com", "ownerb")
+    joiner = await _add_user(db_session, "joiner@example.com", "joiner")
+    group_a = await _service(owner_a, db_session).create(
+        CreateGroupRequest(name="그룹A")
+    )
+    await _service(owner_b, db_session).create(CreateGroupRequest(name="그룹B"))
+    pending = await _service(owner_b, db_session).invite_by_nickname(
+        InviteByNicknameRequest(nickname=joiner.nickname)
+    )
+
+    await _service(joiner, db_session).join_by_code(
+        JoinByCodeRequest(invite_code=group_a.invite_code)
+    )
+
+    stored = await GroupRepository(db_session).get_invite(pending.id)
+    assert stored is not None
+    assert stored.status == InviteStatus.cancelled
+
+
+@pytest.mark.asyncio
+async def test_leave_cancels_pending_invites_to_left_group(db_session, test_user):
+    owner_service = _service(test_user, db_session)
+    group = await owner_service.create(CreateGroupRequest(name="우리집"))
+    member = await _add_user(db_session, "member@example.com", "member")
+    invite = await owner_service.invite_by_nickname(
+        InviteByNicknameRequest(nickname=member.nickname)
+    )
+    repo = GroupRepository(db_session)
+    await repo.add_member(
+        GroupMember(group_id=group.id, user_id=member.id, role=GroupRole.member)
+    )
+
+    await _service(member, db_session).leave()
+
+    stored = await repo.get_invite(invite.id)
+    assert stored is not None
+    assert stored.status == InviteStatus.cancelled
 
 
 @pytest.mark.asyncio

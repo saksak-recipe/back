@@ -5,7 +5,12 @@ import pytest
 import uuid6
 from sqlalchemy.orm import Session
 
-from core.exception.exceptions import BadRequestException, IngredientNotFoundException
+from core.exception.codes import ErrorCode
+from core.exception.exceptions import (
+    BadRequestException,
+    ConflictException,
+    IngredientNotFoundException,
+)
 from domains.ingredient.model import Ingredient
 from domains.ingredient.repository import IngredientRepository
 from domains.ingredient.schemas import AddIngredientRequest, UpdateIngredientRequest
@@ -17,6 +22,7 @@ from domains.user.model import User
 def ingredient_repo() -> AsyncMock:
     repo = AsyncMock()
     repo.session.sync_session = Session()
+    repo.find_name_for_user.return_value = None
     return repo
 
 
@@ -42,15 +48,22 @@ def shelf_life_service() -> AsyncMock:
 
 
 @pytest.fixture
+def notification_service() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
 def ingredient_service(
     user: User,
     ingredient_repo: AsyncMock,
     shelf_life_service: AsyncMock,
+    notification_service: AsyncMock,
 ) -> IngredientService:
     return IngredientService(
         user=user,
         ingredient_repo=ingredient_repo,
         shelf_life_service=shelf_life_service,
+        notification_service=notification_service,
     )
 
 
@@ -178,6 +191,7 @@ async def test_get_ingredients_excludes_group_scoped_rows(db_session, test_user:
         shelf_life_service=AsyncMock(
             resolve_expirations_on_add=AsyncMock(return_value=[None])
         ),
+        notification_service=AsyncMock(),
     ).get_ingredients()
 
     assert [item.ingredient_name for item in result] == ["개인 양파"]
@@ -309,6 +323,7 @@ async def test_delete_ingredient_raises_when_not_found(
 async def test_delete_ingredient(
     ingredient_service: IngredientService,
     ingredient_repo: AsyncMock,
+    notification_service: AsyncMock,
     user: User,
 ):
     ingredient_repo.delete_ingredient.return_value = True
@@ -316,24 +331,98 @@ async def test_delete_ingredient(
     await ingredient_service.delete_ingredient(1)
 
     ingredient_repo.delete_ingredient.assert_awaited_once_with(1, user.id)
+    notification_service.delete_expiry_for_ingredient.assert_awaited_once_with(1)
 
 
-async def test_delete_all_ingredients_raises_when_empty(
+async def test_add_ingredients_rejects_duplicate_name(
+    ingredient_service: IngredientService, ingredient_repo: AsyncMock, user: User
+):
+    ingredient_repo.find_name_for_user.return_value = Ingredient(
+        id=1,
+        user_id=user.id,
+        ingredient_name="양파",
+        purchase_date=date.today(),
+    )
+
+    with pytest.raises(ConflictException) as exc:
+        await ingredient_service.add_ingredients(
+            AddIngredientRequest(ingredients=["양파"])
+        )
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+    ingredient_repo.add_ingredient.assert_not_awaited()
+
+
+async def test_add_ingredients_rejects_duplicate_in_request(
     ingredient_service: IngredientService, ingredient_repo: AsyncMock
 ):
-    ingredient_repo.delete_all_ingredients.return_value = False
+    ingredient_repo.find_name_for_user.return_value = None
 
-    with pytest.raises(IngredientNotFoundException):
-        await ingredient_service.delete_all_ingredients()
+    with pytest.raises(ConflictException) as exc:
+        await ingredient_service.add_ingredients(
+            AddIngredientRequest(ingredients=["양파", "양파"])
+        )
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+
+
+async def test_update_ingredient_rejects_name_conflict(
+    ingredient_service: IngredientService,
+    ingredient_repo: AsyncMock,
+    user: User,
+):
+    existing = Ingredient(
+        id=1,
+        user_id=user.id,
+        ingredient_name="양파",
+        purchase_date=date.today(),
+    )
+    ingredient_repo.get_by_id.return_value = existing
+    ingredient_repo.find_name_for_user.return_value = Ingredient(
+        id=2,
+        user_id=user.id,
+        ingredient_name="당근",
+        purchase_date=date.today(),
+    )
+
+    with pytest.raises(ConflictException) as exc:
+        await ingredient_service.update_ingredient(
+            1, UpdateIngredientRequest(ingredient_name="당근")
+        )
+
+    assert exc.value.code == ErrorCode.INGREDIENT_NAME_CONFLICT
+
+
+async def test_delete_all_ingredients_succeeds_when_empty(
+    ingredient_service: IngredientService,
+    ingredient_repo: AsyncMock,
+    notification_service: AsyncMock,
+):
+    ingredient_repo.get_ingredients.return_value = []
+    ingredient_repo.delete_all_ingredients.return_value = 0
+
+    await ingredient_service.delete_all_ingredients()
+
+    ingredient_repo.delete_all_ingredients.assert_awaited_once()
+    notification_service.delete_expiry_for_ingredients.assert_not_awaited()
 
 
 async def test_delete_all_ingredients_deletes_all(
     ingredient_service: IngredientService,
     ingredient_repo: AsyncMock,
+    notification_service: AsyncMock,
     user: User,
 ):
-    ingredient_repo.delete_all_ingredients.return_value = True
+    ingredient_repo.get_ingredients.return_value = [
+        Ingredient(id=1, user_id=user.id, ingredient_name="양파"),
+        Ingredient(id=2, user_id=user.id, ingredient_name="당근"),
+        Ingredient(id=3, user_id=user.id, ingredient_name="대파"),
+    ]
+    ingredient_repo.delete_all_ingredients.return_value = 3
 
     await ingredient_service.delete_all_ingredients()
 
     ingredient_repo.delete_all_ingredients.assert_awaited_once_with(user.id)
+    notification_service.delete_expiry_for_ingredients.assert_awaited_once_with(
+        [1, 2, 3]
+    )

@@ -55,3 +55,19 @@ def test_search_db_error_raises_database_exception():
 
     assert exc_info.value.detail == "레시피 벡터 검색 중 DB 오류가 발생했습니다."
     assert isinstance(exc_info.value.__cause__, psycopg.Error)
+
+
+def test_search_generic_error_raises_external_service_exception():
+    store = MagicMock()
+    store.similarity_search_with_score.side_effect = RuntimeError("unexpected")
+
+    retriever = RecipeRetriever(vector_store=store)
+
+    with pytest.raises(ExternalServiceException) as exc_info:
+        retriever.search("parsed_ingredients: 계란")
+
+    assert (
+        exc_info.value.detail
+        == "레시피 벡터 검색 중 외부 서비스 오류가 발생했습니다."
+    )
+    assert isinstance(exc_info.value.__cause__, RuntimeError)

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 
 from bs4 import BeautifulSoup
 import httpx
@@ -32,6 +33,8 @@ class RecipeCrawler:
         )
         try:
             return parse_search_html(html)
+        except ExternalServiceException:
+            raise
         except Exception as exc:
             raise ExternalServiceException("레시피 검색 결과를 파싱하지 못했어요") from exc
 
@@ -42,6 +45,8 @@ class RecipeCrawler:
             if not detail.recipe_name and not detail.ingredients and not detail.steps:
                 raise ExternalServiceException("레시피 상세 정보가 비어 있어요")
             return detail
+        except ExternalServiceException:
+            raise
         except Exception as exc:
             raise ExternalServiceException("레시피 상세 정보를 파싱하지 못했어요") from exc
 
@@ -128,6 +133,62 @@ def _load_recipe_ld(soup: BeautifulSoup) -> dict[str, object] | None:
     return None
 
 
+def _iso_duration_to_korean(value: str) -> str:
+    """Convert ISO-8601 durations like PT1H30M into a short Korean label."""
+    match = re.fullmatch(
+        r"P(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)",
+        value.strip().upper(),
+    )
+    if not match:
+        return value
+    hours, minutes, seconds = (int(part or 0) for part in match.groups())
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours}시간")
+    if minutes:
+        parts.append(f"{minutes}분")
+    if seconds and not hours and not minutes:
+        parts.append(f"{seconds}초")
+    return " ".join(parts) if parts else value
+
+
+def _parse_difficulty_and_time(
+    soup: BeautifulSoup, recipe: dict[str, object]
+) -> tuple[str | None, str | None]:
+    difficulty: str | None = None
+    time_value: str | None = None
+
+    raw_difficulty = recipe.get("recipeDifficulty") or recipe.get("difficulty")
+    if isinstance(raw_difficulty, str) and raw_difficulty.strip():
+        difficulty = raw_difficulty.strip()
+
+    for key in ("totalTime", "cookTime", "prepTime"):
+        raw_time = recipe.get(key)
+        if isinstance(raw_time, str) and raw_time.strip():
+            time_value = _iso_duration_to_korean(raw_time.strip())
+            break
+
+    if difficulty is None:
+        level_el = soup.select_one(
+            ".view_info .view_info_level, .view_summary_info .view_info_level"
+        )
+        if level_el is not None:
+            text = level_el.get_text(strip=True)
+            if text:
+                difficulty = text
+
+    if time_value is None:
+        time_el = soup.select_one(
+            ".view_info .view_info_time, .view_summary_info .view_info_time"
+        )
+        if time_el is not None:
+            text = time_el.get_text(strip=True)
+            if text:
+                time_value = text
+
+    return difficulty, time_value
+
+
 def parse_detail_html(html: str, recipe_id: str) -> RecipeDetailResponse:
     soup = BeautifulSoup(html, "html.parser")
     recipe = _load_recipe_ld(soup) or {}
@@ -180,12 +241,16 @@ def parse_detail_html(html: str, recipe_id: str) -> RecipeDetailResponse:
             seen.add(text)
             tips.append(text)
 
+    recipe_difficulty, time_value = _parse_difficulty_and_time(soup, recipe)
+
     return RecipeDetailResponse(
         board_name="",
         author_name="",
         recipe_name=recipe.get("name") if isinstance(recipe.get("name"), str) else "",
         source_url=f"{BASE_URL}/recipe/{recipe_id}",
         main_image_url=main_image,
+        recipe_difficulty=recipe_difficulty,
+        time=time_value,
         ingredients=ingredients,
         steps=steps,
         tips=tips,

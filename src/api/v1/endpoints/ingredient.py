@@ -3,6 +3,7 @@ from fastapi import APIRouter, status, Depends
 from api.deps import get_ingredient_service
 from core.exception.exceptions import (
     BadRequestException,
+    ConflictException,
     UnAuthorizedException,
     IngredientNotFoundException,
 )
@@ -22,7 +23,9 @@ router = APIRouter(prefix="/ingredients", tags=["ingredients"])
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=list[AddIngredientResponse],
-    responses=create_error_response(UnAuthorizedException, BadRequestException),
+    responses=create_error_response(
+        UnAuthorizedException, BadRequestException, ConflictException
+    ),
 )
 async def add_ingredients(
     request: AddIngredientRequest,
@@ -50,6 +53,7 @@ async def list_ingredients(
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
+        ConflictException,
         IngredientNotFoundException,
     ),
 )
@@ -64,10 +68,7 @@ async def update_ingredient(
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=create_error_response(
-        UnAuthorizedException,
-        IngredientNotFoundException,
-    ),
+    responses=create_error_response(UnAuthorizedException),
 )
 async def delete_all_ingredients(
     service: IngredientService = Depends(get_ingredient_service),

@@ -10,6 +10,7 @@ from core.exception.exceptions import BadRequestException, ExternalServiceExcept
 
 PURPOSE_SIGNUP = "signup"
 PURPOSE_PASSWORD_RESET = "password_reset"
+PURPOSE_KAKAO_SIGNUP = "kakao_signup"
 CODE_TTL_SECONDS = 180
 MAX_ATTEMPTS = 5
 

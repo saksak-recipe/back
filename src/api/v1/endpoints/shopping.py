@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, status
 from api.deps import get_shopping_service
 from core.exception.exceptions import (
     BadRequestException,
+    ConflictException,
     ShoppingItemNotFoundException,
     UnAuthorizedException,
 )
@@ -67,6 +68,7 @@ async def update_item(
     response_model=AddIngredientResponse,
     responses=create_error_response(
         UnAuthorizedException,
+        ConflictException,
         ShoppingItemNotFoundException,
     ),
 )
@@ -80,10 +82,7 @@ async def to_ingredient(
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=create_error_response(
-        UnAuthorizedException,
-        ShoppingItemNotFoundException,
-    ),
+    responses=create_error_response(UnAuthorizedException),
 )
 async def delete_all(
     service: ShoppingService = Depends(get_shopping_service),

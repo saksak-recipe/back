@@ -64,8 +64,8 @@ class SavedRecipeService:
         board_name, author_name = parse_mangae_source_id(request.source_id)
         detail = await self.recipe_detail_service.get_detail(board_name, author_name)
         recipe_name = detail.recipe_name
-        recipe_difficulty = None
-        time_value = None
+        recipe_difficulty = detail.recipe_difficulty
+        time_value = detail.time
         snapshot = {
             "ingredients": [item.model_dump() for item in detail.ingredients],
             "steps": [item.model_dump() for item in detail.steps],

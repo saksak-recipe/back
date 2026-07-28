@@ -1,10 +1,15 @@
 from fastapi import APIRouter, status, Depends
 
 from api.deps import get_auth_service, get_current_user, get_user_service
+from core.exception.exceptions import (
+    ConflictException,
+    TooManyRequestsException,
+    UnAuthorizedException,
+)
+from core.exception.openapi import create_error_response
+from domains.auth.schemas import SignUpRequest, SignUpResponse
 from domains.user.model import User
 from domains.user.schemas import (
-    SignUpRequest,
-    SignUpResponse,
     UpdateMeRequest,
     UpdatePasswordRequest,
     UserInfoResponse,
@@ -20,6 +25,7 @@ router = APIRouter(prefix="/users", tags=["users"])
     status_code=status.HTTP_201_CREATED,
     response_model=SignUpResponse,
     response_model_exclude_none=True,
+    responses=create_error_response(ConflictException, TooManyRequestsException),
 )
 async def signup(
     request: SignUpRequest,
@@ -34,7 +40,11 @@ async def get_me(user: User = Depends(get_current_user)) -> UserInfoResponse:
     return UserInfoResponse.from_user(user)
 
 
-@router.patch("/me", response_model=UserInfoResponse)
+@router.patch(
+    "/me",
+    response_model=UserInfoResponse,
+    responses=create_error_response(ConflictException),
+)
 async def update_me(
     request: UpdateMeRequest,
     user: User = Depends(get_current_user),
@@ -43,7 +53,11 @@ async def update_me(
     return await user_service.update_me(user, request)
 
 
-@router.patch("/me/password", response_model=UserInfoResponse)
+@router.patch(
+    "/me/password",
+    response_model=UserInfoResponse,
+    responses=create_error_response(UnAuthorizedException),
+)
 async def update_password(
     request: UpdatePasswordRequest,
     user: User = Depends(get_current_user),

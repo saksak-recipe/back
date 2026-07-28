@@ -51,7 +51,8 @@ class OcrService:
         self, content_type: str | None, filename: str | None
     ) -> str:
         if content_type:
-            fmt = _MIME_TO_FORMAT.get(content_type.lower())
+            mime = content_type.split(";", 1)[0].strip().lower()
+            fmt = _MIME_TO_FORMAT.get(mime)
             if fmt:
                 return fmt
         if filename and "." in filename:
@@ -73,9 +74,6 @@ class OcrService:
             raise BadRequestException(detail="이미지 파일이 비어 있습니다.")
 
         image_format = self._resolve_format(content_type, filename)
-        quota = await self._daily_quota_store.consume(
-            KIND_OCR, str(self._user_id), OCR_DAILY_LIMIT
-        )
         ocr_text = await self._extract_text(
             image_bytes,
             format=image_format,
@@ -86,5 +84,8 @@ class OcrService:
             ocr_text,
             api_key=self._openai_api_key,
             model=self._llm_model,
+        )
+        quota = await self._daily_quota_store.consume(
+            KIND_OCR, str(self._user_id), OCR_DAILY_LIMIT
         )
         return OcrReceiptResponse(ingredients=ingredients, quota=quota)

@@ -3,12 +3,17 @@ from __future__ import annotations
 import uuid6
 
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, ForeignKey, String, Date, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
+
+if TYPE_CHECKING:
+    from domains.user.model import User
+
 
 class Ingredient(Base):
     __tablename__ = "ingredients"
@@ -36,7 +41,7 @@ class Ingredient(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
-    user: Mapped["User"] = relationship(
+    user: Mapped[User] = relationship(
         "User",
         back_populates="ingredients"
     )

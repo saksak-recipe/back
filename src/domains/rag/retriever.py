@@ -26,8 +26,8 @@ class RecipeRetriever:
                 detail="레시피 벡터 검색 중 DB 오류가 발생했습니다."
             ) from e
         except Exception as e:
-            raise DatabaseException(
-                detail="레시피 벡터 검색 중 DB 오류가 발생했습니다."
+            raise ExternalServiceException(
+                detail="레시피 벡터 검색 중 외부 서비스 오류가 발생했습니다."
             ) from e
 
 

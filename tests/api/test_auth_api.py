@@ -207,11 +207,8 @@ async def test_password_reset_e2e(client: AsyncClient, fixed_email_code):
     )
     assert request.status_code == 200
     body = request.json()
-    assert body["ok"] is True
-    assert body["message"] == "password_reset_email_sent"
-    assert "quota" in body
-    assert body["quota"]["limit"] == 3
-    assert body["quota"]["remaining"] >= 0
+    assert body == {"ok": True, "message": "password_reset_email_sent"}
+    assert "quota" not in body
 
     confirm = await client.post(
         "/api/v1/auth/password/reset/confirm",
