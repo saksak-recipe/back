@@ -6,6 +6,10 @@ from core.quota import (
     DailyQuotaStore,
     EMAIL_SEND_DAILY_LIMIT,
     KIND_EMAIL_SEND,
+    KIND_OCR,
+    KIND_RAG,
+    OCR_DAILY_LIMIT,
+    RAG_DAILY_LIMIT,
 )
 
 
@@ -42,3 +46,26 @@ async def test_subjects_are_independent(store: DailyQuotaStore):
     await store.consume(KIND_EMAIL_SEND, "a@example.com", 3)
     q = await store.consume(KIND_EMAIL_SEND, "b@example.com", 3)
     assert q.used == 1
+
+
+async def test_peek_missing_key_returns_zero_used(store: DailyQuotaStore):
+    q = await store.peek(KIND_OCR, "user-1", OCR_DAILY_LIMIT)
+    assert q.limit == 3
+    assert q.used == 0
+    assert q.remaining == 3
+    assert q.reset_at.tzinfo is not None
+
+
+async def test_peek_does_not_increment(store: DailyQuotaStore):
+    await store.peek(KIND_RAG, "user-1", RAG_DAILY_LIMIT)
+    q = await store.peek(KIND_RAG, "user-1", RAG_DAILY_LIMIT)
+    assert q.used == 0
+    assert q.remaining == 7
+
+
+async def test_peek_matches_consume_used(store: DailyQuotaStore):
+    await store.consume(KIND_OCR, "user-1", OCR_DAILY_LIMIT)
+    await store.consume(KIND_OCR, "user-1", OCR_DAILY_LIMIT)
+    q = await store.peek(KIND_OCR, "user-1", OCR_DAILY_LIMIT)
+    assert q.used == 2
+    assert q.remaining == 1
