@@ -11,14 +11,14 @@ from core.exception.exceptions import BaseCustomException
 
 async def custom_exception_handler(request: Request, exc: BaseCustomException):
     """비즈니스 로직에서 발생하는 커스텀 예외 처리"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "status_code": exc.status_code,
-            "code": exc.code,
-            "detail": exc.detail,
-        },
-    )
+    content = {
+        "status_code": exc.status_code,
+        "code": exc.code,
+        "detail": exc.detail,
+    }
+    if getattr(exc, "extra", None):
+        content.update(exc.extra)
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):

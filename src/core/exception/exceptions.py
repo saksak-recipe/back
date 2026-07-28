@@ -2,10 +2,18 @@ from core.exception.codes import ErrorCode
 
 
 class BaseCustomException(Exception):
-    def __init__(self, status_code: int, code: str | ErrorCode, detail: str):
+    def __init__(
+        self,
+        status_code: int,
+        code: str | ErrorCode,
+        detail: str,
+        *,
+        extra: dict | None = None,
+    ):
         self.status_code = status_code
         self.code = code
         self.detail = detail
+        self.extra = extra or {}
         super().__init__(detail)
 
 
@@ -63,6 +71,17 @@ class ConflictException(BaseCustomException):
         detail: str = "리소스 충돌이 발생했습니다.",
     ):
         super().__init__(status_code=409, code=code, detail=detail)
+
+
+class TooManyRequestsException(BaseCustomException):
+    def __init__(
+        self,
+        code: str | ErrorCode,
+        detail: str,
+        *,
+        extra: dict | None = None,
+    ):
+        super().__init__(status_code=429, code=code, detail=detail, extra=extra)
 
 
 class ExternalServiceException(BaseCustomException):
