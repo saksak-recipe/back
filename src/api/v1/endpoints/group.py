@@ -37,13 +37,15 @@ from domains.shopping.schemas import (
     UpdateShoppingItemRequest,
 )
 
-router = APIRouter(prefix="/groups", tags=["groups"])
+router = APIRouter(prefix="/groups", tags=["그룹"])
 
 
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=GroupResponse,
+    summary="그룹 생성",
+    description="새 그룹을 생성하고 현재 사용자를 그룹장으로 등록합니다.",
     responses=create_error_response(
         UnAuthorizedException, BadRequestException, ConflictException
     ),
@@ -59,6 +61,8 @@ async def create_group(
     "/me",
     status_code=status.HTTP_200_OK,
     response_model=GroupResponse,
+    summary="내 그룹 조회",
+    description="현재 사용자가 속한 그룹 정보를 조회합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def get_my_group(
@@ -71,6 +75,8 @@ async def get_my_group(
     "/me",
     status_code=status.HTTP_200_OK,
     response_model=GroupResponse,
+    summary="내 그룹 수정",
+    description="그룹 이름 등 내 그룹 정보를 수정합니다. 그룹장만 가능합니다.",
     responses=create_error_response(
         UnAuthorizedException, ForbiddenException, NotFoundException, BadRequestException
     ),
@@ -85,6 +91,8 @@ async def update_my_group(
 @router.delete(
     "/me",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 해체",
+    description="내 그룹을 해체합니다. 그룹장만 가능합니다.",
     responses=create_error_response(
         UnAuthorizedException, ForbiddenException, NotFoundException
     ),
@@ -98,6 +106,8 @@ async def dissolve_group(
 @router.post(
     "/me/leave",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 나가기",
+    description="현재 사용자가 속한 그룹에서 나갑니다.",
     responses=create_error_response(
         UnAuthorizedException, BadRequestException, NotFoundException
     ),
@@ -111,6 +121,8 @@ async def leave_group(
 @router.delete(
     "/me/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 멤버 추방",
+    description="그룹에서 특정 멤버를 추방합니다. 그룹장만 가능합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         ForbiddenException,
@@ -129,6 +141,8 @@ async def kick_member(
     "/me/invites",
     status_code=status.HTTP_201_CREATED,
     response_model=GroupInviteResponse,
+    summary="닉네임으로 초대",
+    description="닉네임으로 사용자를 검색해 내 그룹에 초대합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
@@ -148,6 +162,8 @@ async def invite_by_nickname(
     "/invites",
     status_code=status.HTTP_200_OK,
     response_model=list[GroupInviteResponse],
+    summary="받은 초대 목록",
+    description="현재 사용자에게 온 그룹 초대 목록을 조회합니다.",
     responses=create_error_response(UnAuthorizedException),
 )
 async def list_my_invites(
@@ -160,6 +176,8 @@ async def list_my_invites(
     "/invites/{invite_id}/accept",
     status_code=status.HTTP_200_OK,
     response_model=GroupResponse,
+    summary="초대 수락",
+    description="받은 그룹 초대를 수락하고 해당 그룹에 가입합니다.",
     responses=create_error_response(
         UnAuthorizedException, ConflictException, NotFoundException
     ),
@@ -174,6 +192,8 @@ async def accept_invite(
 @router.post(
     "/invites/{invite_id}/reject",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="초대 거절",
+    description="받은 그룹 초대를 거절합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def reject_invite(
@@ -187,6 +207,8 @@ async def reject_invite(
     "/join",
     status_code=status.HTTP_200_OK,
     response_model=GroupResponse,
+    summary="초대 코드로 가입",
+    description="그룹 초대 코드로 그룹에 가입합니다.",
     responses=create_error_response(
         UnAuthorizedException, ConflictException, NotFoundException
     ),
@@ -202,6 +224,8 @@ async def join_by_code(
     "/me/rotate-code",
     status_code=status.HTTP_200_OK,
     response_model=GroupResponse,
+    summary="초대 코드 재발급",
+    description="그룹 초대 코드를 새로 발급합니다. 그룹장만 가능합니다.",
     responses=create_error_response(
         UnAuthorizedException, ForbiddenException, NotFoundException
     ),
@@ -216,6 +240,8 @@ async def rotate_invite_code(
     "/me/ingredients",
     status_code=status.HTTP_200_OK,
     response_model=list[GetIngredientResponse],
+    summary="그룹 재료 목록 조회",
+    description="내 그룹 공유 냉장고의 재료 목록을 조회합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def list_group_ingredients(
@@ -228,6 +254,8 @@ async def list_group_ingredients(
     "/me/ingredients",
     status_code=status.HTTP_201_CREATED,
     response_model=list[AddIngredientResponse],
+    summary="그룹 재료 추가",
+    description="내 그룹 공유 냉장고에 재료를 추가합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
@@ -245,6 +273,8 @@ async def add_group_ingredients(
 @router.delete(
     "/me/ingredients",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 재료 전체 삭제",
+    description="내 그룹 공유 냉장고의 모든 재료를 삭제합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def delete_all_group_ingredients(
@@ -257,6 +287,8 @@ async def delete_all_group_ingredients(
     "/me/ingredients/{ingredient_id}",
     status_code=status.HTTP_200_OK,
     response_model=GetIngredientResponse,
+    summary="그룹 재료 수정",
+    description="내 그룹 공유 냉장고의 특정 재료를 수정합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
@@ -276,6 +308,8 @@ async def update_group_ingredient(
 @router.delete(
     "/me/ingredients/{ingredient_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 재료 삭제",
+    description="내 그룹 공유 냉장고의 특정 재료를 삭제합니다.",
     responses=create_error_response(
         UnAuthorizedException, IngredientNotFoundException, NotFoundException
     ),
@@ -291,6 +325,8 @@ async def delete_group_ingredient(
     "/me/shopping-items",
     status_code=status.HTTP_200_OK,
     response_model=list[ShoppingItemResponse],
+    summary="그룹 장보기 목록 조회",
+    description="내 그룹 공유 장보기 목록을 조회합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def list_group_shopping_items(
@@ -303,6 +339,8 @@ async def list_group_shopping_items(
     "/me/shopping-items",
     status_code=status.HTTP_201_CREATED,
     response_model=list[ShoppingItemResponse],
+    summary="그룹 장보기 항목 추가",
+    description="내 그룹 공유 장보기 목록에 항목을 추가합니다.",
     responses=create_error_response(
         UnAuthorizedException, BadRequestException, NotFoundException
     ),
@@ -317,6 +355,8 @@ async def add_group_shopping_items(
 @router.delete(
     "/me/shopping-items",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 장보기 전체 삭제",
+    description="내 그룹 공유 장보기 목록의 모든 항목을 삭제합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def delete_all_group_shopping_items(
@@ -329,6 +369,8 @@ async def delete_all_group_shopping_items(
     "/me/shopping-items/{item_id}",
     status_code=status.HTTP_200_OK,
     response_model=ShoppingItemResponse,
+    summary="그룹 장보기 항목 수정",
+    description="내 그룹 공유 장보기 목록의 특정 항목을 수정합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
@@ -347,6 +389,8 @@ async def update_group_shopping_item(
 @router.delete(
     "/me/shopping-items/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="그룹 장보기 항목 삭제",
+    description="내 그룹 공유 장보기 목록의 특정 항목을 삭제합니다.",
     responses=create_error_response(
         UnAuthorizedException, ShoppingItemNotFoundException, NotFoundException
     ),
@@ -362,6 +406,8 @@ async def delete_group_shopping_item(
     "/me/shopping-items/{item_id}/to-ingredient",
     status_code=status.HTTP_201_CREATED,
     response_model=AddIngredientResponse,
+    summary="그룹 장보기 항목을 재료로 전환",
+    description="그룹 장보기 항목을 그룹 냉장고 재료로 옮기고 해당 장보기 항목을 제거합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         ConflictException,
@@ -380,6 +426,8 @@ async def group_shopping_to_ingredient(
     "/me/merge",
     status_code=status.HTTP_200_OK,
     response_model=MergeResponse,
+    summary="개인 데이터 그룹 병합",
+    description="개인 냉장고·장보기 데이터를 그룹 공유 목록으로 병합합니다.",
     responses=create_error_response(
         UnAuthorizedException, NotFoundException, BadRequestException
     ),

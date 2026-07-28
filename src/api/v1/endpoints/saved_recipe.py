@@ -19,7 +19,7 @@ from domains.saved_recipe.schemas import (
 )
 from domains.saved_recipe.service import SavedRecipeService
 
-router = APIRouter(prefix="/recipes/saved", tags=["saved-recipes"])
+router = APIRouter(prefix="/recipes/saved", tags=["저장 레시피"])
 
 
 @router.post(
@@ -27,6 +27,7 @@ router = APIRouter(prefix="/recipes/saved", tags=["saved-recipes"])
     status_code=status.HTTP_201_CREATED,
     response_model=SavedRecipeDetailResponse,
     summary="레시피 저장",
+    description="추천·상세에서 본 레시피를 내 저장 목록에 추가합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
@@ -47,6 +48,7 @@ async def save_recipe(
     status_code=status.HTTP_200_OK,
     response_model=list[SavedRecipeListItem],
     summary="저장 레시피 목록",
+    description="내가 저장한 레시피 목록을 조회합니다.",
     responses=create_error_response(UnAuthorizedException),
 )
 async def list_saved_recipes(
@@ -60,6 +62,7 @@ async def list_saved_recipes(
     status_code=status.HTTP_200_OK,
     response_model=SavedRecipeStatusResponse,
     summary="레시피 저장 여부",
+    description="특정 소스·소스 ID의 레시피가 이미 저장돼 있는지 확인합니다.",
     responses=create_error_response(UnAuthorizedException, BadRequestException),
 )
 async def saved_recipe_status(
@@ -75,6 +78,7 @@ async def saved_recipe_status(
     status_code=status.HTTP_200_OK,
     response_model=SavedRecipeDetailResponse,
     summary="저장 레시피 상세",
+    description="저장한 레시피의 상세 정보를 조회합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def get_saved_recipe(
@@ -88,6 +92,7 @@ async def get_saved_recipe(
     "/{recipe_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="저장 레시피 삭제",
+    description="저장한 레시피를 목록에서 삭제합니다.",
     responses=create_error_response(UnAuthorizedException, NotFoundException),
 )
 async def delete_saved_recipe(

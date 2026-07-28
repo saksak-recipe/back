@@ -16,13 +16,15 @@ from domains.shopping.schemas import (
 )
 from domains.shopping.service import ShoppingService
 
-router = APIRouter(prefix="/shopping-items", tags=["shopping"])
+router = APIRouter(prefix="/shopping-items", tags=["장보기"])
 
 
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=list[ShoppingItemResponse],
+    summary="장보기 항목 추가",
+    description="개인 장보기 목록에 항목을 하나 이상 추가합니다.",
     responses=create_error_response(UnAuthorizedException, BadRequestException),
 )
 async def add_items(
@@ -36,6 +38,8 @@ async def add_items(
     "",
     status_code=status.HTTP_200_OK,
     response_model=list[ShoppingItemResponse],
+    summary="장보기 목록 조회",
+    description="개인 장보기 목록을 조회합니다.",
     responses=create_error_response(UnAuthorizedException),
 )
 async def list_items(
@@ -48,6 +52,8 @@ async def list_items(
     "/{item_id}",
     status_code=status.HTTP_200_OK,
     response_model=ShoppingItemResponse,
+    summary="장보기 항목 수정",
+    description="개인 장보기 목록의 특정 항목을 수정합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,
@@ -66,6 +72,8 @@ async def update_item(
     "/{item_id}/to-ingredient",
     status_code=status.HTTP_201_CREATED,
     response_model=AddIngredientResponse,
+    summary="장보기 항목을 재료로 전환",
+    description="장보기 항목을 개인 냉장고 재료로 옮기고 해당 장보기 항목을 제거합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         ConflictException,
@@ -82,6 +90,8 @@ async def to_ingredient(
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="장보기 전체 삭제",
+    description="개인 장보기 목록의 모든 항목을 삭제합니다.",
     responses=create_error_response(UnAuthorizedException),
 )
 async def delete_all(
@@ -93,6 +103,8 @@ async def delete_all(
 @router.delete(
     "/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="장보기 항목 삭제",
+    description="개인 장보기 목록의 특정 항목을 삭제합니다.",
     responses=create_error_response(
         UnAuthorizedException,
         ShoppingItemNotFoundException,

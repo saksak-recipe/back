@@ -12,7 +12,7 @@ class RecipeRecommendation(BaseModel):
     recipe_difficulty: str = ""
     time: str = ""
     score: float = Field(
-        description="PGVector distance. Smaller means more similar."
+        description="PGVector 거리. 값이 작을수록 유사도가 높습니다."
     )
 
 

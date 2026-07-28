@@ -26,7 +26,11 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="삭삭 API",
+    description="냉장고 재료·장보기·그룹·레시피 추천을 위한 Saksak 백엔드 API입니다.",
+    lifespan=lifespan,
+)
 
 setup_logger()
 
@@ -53,6 +57,10 @@ async def add_process_time_header(request: Request, call_next):
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
-@app.get("/")
+@app.get(
+    "/",
+    summary="헬스 체크",
+    description="서버 상태를 확인하는 루트 엔드포인트입니다.",
+)
 def hello_world():
     return {"message": "Hello World"}

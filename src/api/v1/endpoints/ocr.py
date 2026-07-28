@@ -11,13 +11,15 @@ from core.exception.openapi import create_error_response
 from domains.ocr.schemas import OcrReceiptResponse
 from domains.ocr.service import OcrService
 
-router = APIRouter(prefix="/ocr", tags=["ocr"])
+router = APIRouter(prefix="/ocr", tags=["OCR"])
 
 
 @router.post(
     "/receipt",
     status_code=status.HTTP_200_OK,
     response_model=OcrReceiptResponse,
+    summary="영수증 OCR",
+    description="영수증 이미지를 업로드해 구매 품목을 인식합니다. 일일 사용량 제한이 있습니다.",
     responses=create_error_response(
         UnAuthorizedException,
         BadRequestException,

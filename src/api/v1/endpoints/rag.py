@@ -15,13 +15,15 @@ from domains.rag.service import RagService
 from domains.recipe_detail.schemas import RecipeDetailResponse
 from domains.recipe_detail.service import RecipeDetailService
 
-router = APIRouter(prefix="/recipes", tags=["recipes"])
+router = APIRouter(prefix="/recipes", tags=["레시피"])
 
 
 @router.get(
     "/recommendations",
     status_code=status.HTTP_200_OK,
     response_model=RecipeRecommendationResponse,
+    summary="레시피 추천",
+    description="보유 재료 기반으로 레시피를 추천합니다. scope로 개인/그룹 재료를 선택할 수 있으며, 일일 사용량 제한이 있습니다.",
     responses=create_error_response(
         UnAuthorizedException,
         NotFoundException,
@@ -40,7 +42,8 @@ async def recommend_recipes(
 @router.get(
     "/detail",
     status_code=status.HTTP_200_OK,
-    summary="만개의 레시피 기반 크롤링 검색",
+    summary="레시피 상세 조회",
+    description="만개의 레시피 게시글명·작성자명으로 레시피 상세 정보를 크롤링해 반환합니다.",
     response_model=RecipeDetailResponse,
     responses=create_error_response(
         UnAuthorizedException,
